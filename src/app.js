@@ -34,6 +34,7 @@ const A = {
   settings: { ...DEFAULTS },
   notes: {},           // 내 암기법 { id: { s, t } }
   flags: {},           // 아주 중요 표시 { id: { on, t } } (백업에 들어감)
+  sessions: {},        // 계획마다 하던 공부 { 'rec'|'syl'|'L:목록id': 세션 }
   qmarks: {},          // 시험 결과 모음 { id: { w, u, ok, last, t } } (이 기기만)
   lastBackup: 0,
   sess: null,          // 지금 세션
@@ -65,8 +66,9 @@ async function boot() {
   A.qmarks = await store.get('qmarks', {});
   A.lastBackup = await store.get('lastBackup', 0);
   A.quizzes = await store.get('quizzes', []);
+  A.sessions = await store.get('sessions', {});
   const saved = await store.get('session', null);
-  if (saved && saved.day === dayKey(Date.now()) && !isDone(saved)) A.sess = saved;
+  if (saved && saved.day === dayKey(Date.now()) && !isDone(saved)) { A.sess = saved; if (!saved.key) saved.key = saved.mode === 'daily' ? 'rec' : 'other'; }
   A.settings.theme = themeOf(A.settings.theme).id;
   applyLook(A.settings.theme, A.settings.look);
   if (A.settings.scope === 'my') { A.settings.track = 'my'; A.settings.myPace = A.settings.pace; A.settings.scope = '321'; }
@@ -311,6 +313,24 @@ function hsearchHTML() {
   return `<ul class="hs-list">${hits.slice(0, 8).map(([, x]) => `<li><button data-act="opencard" data-arg="${esc(x.id)}"><b lang="en">${esc(x.t)}</b><span>${esc(x.ko.join(' · '))}</span><em>${KIND[x.k]}</em></button></li>`).join('')}</ul>${hits.length > 8 ? `<p class="hs-none">${hits.length - 8}개 더 있어요. 더 길게 써 보세요.</p>` : ''}`;
 }
 
+// 홈 맨 위 "지금 공부 ▾": 누르면 계획 목록이 펼쳐지고, 하던 곳이 있는 계획에는 표시가 붙는다
+function planSwitcher() {
+  const ap = AP();
+  const plans = [{ key: 'rec', arg: 'rec', icon: '✨', name: '추천', sub: scopeLabel(A.settings.scope), scope: A.settings.scope }];
+  if (A.settings.syl && sylUnits(A.settings.syl.scope).length) plans.push({ key: 'syl', arg: 'syl', icon: '📘', name: '강의 순서', sub: `${sylUnits(A.settings.syl.scope).length}개 단원`, scope: A.settings.syl.scope });
+  for (const l of A.settings.lists || []) if (l.ids.length) plans.push({ key: 'L:' + l.id, arg: 'L:' + l.id, icon: '✏️', name: l.name, sub: `내 단어 ${l.ids.length}개`, list: l });
+  const curKey = trackKey();
+  const cur = plans.find(z => z.key === curKey) || plans[0];
+  const pctOf = z => { let pr; if (z.list) { const keep = IX.myList; IX.myList = z.list.ids; pr = progress(IX, A.states, 'my'); IX.myList = keep; } else pr = progress(IX, A.states, z.scope); return pr.total ? Math.round(((pr.mastered + pr.long) / pr.total) * 100) : 0; };
+  const resumeOf = z => liveSess(A.sessions[z.key]) || (A.sess && A.sess.key === z.key && liveSess(A.sess));
+  return `<div class="plansw">
+    <button class="plansw-cur" data-act="plansheet" aria-expanded="${!!A.planSheet}"><span class="sub">지금 공부</span><b>${cur.icon} ${esc(cur.name)}</b><span class="sub">${esc(cur.sub)}</span><span class="caret">${A.planSheet ? '▲' : '▼'}</span></button>
+    ${A.planSheet ? `<div class="plansw-list">${plans.map(z => `<button class="${z.key === cur.key ? 'on' : ''}" data-act="planpick" data-arg="${esc(z.arg)}"><span class="pi">${z.icon}</span><span class="pn"><b>${esc(z.name)}</b><small>${esc(z.sub)} · 익힘 ${pctOf(z)}%</small></span>${resumeOf(z) ? '<em class="badge">하던 곳</em>' : ''}</button>`).join('')}
+      <div class="plansw-new">${plans.some(z => z.key === 'syl') ? '' : '<button class="chip" data-act="planpick" data-arg="new-syl">+ 강의 순서 만들기</button>'}<button class="chip" data-act="planpick" data-arg="new-my">+ 새 내 단어 목록</button></div>
+    </div>` : ''}
+  </div>`;
+}
+
 // 화면 맨 아래 고정 메뉴 (홈 · 시험 · 단어 모음 · 현황)
 const NAV = [['home', '홈', 'home'], ['qset', '시험', 'quiz'], ['marks', '단어', 'marks'], ['history', '기록', 'history']];
 const NAV_VIEWS = new Set(['home', 'qset', 'marks', 'stats', 'settings', 'history']);
@@ -396,10 +416,7 @@ function viewHome() {
     <div class="top-r">${st ? `<span class="pill">${IC.flame}${st}일 연속</span>` : ''}<button class="icon-round" data-act="guide" aria-label="사용법">${IC.help}</button><button class="icon-round" data-act="settings" aria-label="설정">${IC.gear}</button></div></header>
   <div class="hsearch"><span class="hs-ic">${IC.search}</span><input type="search" data-hsearch placeholder="단어 찾기 (영어·한글, 예: 빈맥, tachy)" value="${esc(A.hq || '')}" autocomplete="off"><div id="hsres">${hsearchHTML()}</div></div>
   ${inKakao ? '<div class="warn">카카오톡 안에서 열렸어요. 여기서 공부하면 기록이 따로 저장돼요. 오른쪽 위 메뉴에서 <b>다른 브라우저로 열기</b>를 눌러 주세요.</div>' : ''}
-  ${(A.settings.lists || []).some(l => l.ids.length) ? `<div class="seg track-seg" role="radiogroup" aria-label="무엇을 공부할까요">
-    <button class="${S.track === 'rec' ? 'on' : ''}" data-act="track" data-arg="rec"><b>추천 단어</b><small>${esc(scopeLabel(A.settings.scope))}</small></button>
-    <button class="${S.track === 'my' ? 'on' : ''}" data-act="track" data-arg="my"><b>내 단어</b><small>${esc(myName())} · ${myIds().length}개</small></button>
-  </div>${S.track === 'my' && (A.settings.lists || []).length > 1 ? `<div class="chips track-lists">${A.settings.lists.map(l => `<button class="chip${l.id === curL().id ? ' on' : ''}" data-act="lsel" data-arg="${l.id}">${esc(l.name)} · ${l.ids.length}</button>`).join('')}</div>` : ''}` : ''}
+  ${planSwitcher()}
   <section class="hero">${hero}</section>
   <section class="panel">
     <div class="plan-row">
@@ -820,14 +837,30 @@ function viewEnd() {
 }
 
 // ───────── 동작 ─────────
+// 하던 공부는 계획마다 따로 기억한다 (kv 'sessions' { 계획 키: 세션 }). 계획을 바꿨다 돌아와도 그 자리부터.
+const trackKey = () => { const ap = AP(); return ap.track === 'my' ? 'L:' + (curL() ? curL().id : '') : ap.track; };
+const liveSess = x => x && x.day === dayKey(Date.now()) && !isDone(x);
 async function saveSession() {
-  await store.set('session', A.sess && !isDone(A.sess) ? A.sess : null);
+  const live = liveSess(A.sess);
+  if (A.sess && A.sess.key) { if (live) A.sessions[A.sess.key] = A.sess; else delete A.sessions[A.sess.key]; }
+  for (const k of Object.keys(A.sessions)) if (!liveSess(A.sessions[k])) delete A.sessions[k];
+  await store.set('sessions', A.sessions);
+  await store.set('session', live ? A.sess : null);
+}
+// 계획을 바꿀 때: 지금 하던 것은 넣어 두고, 바꾼 계획에서 하던 것을 꺼낸다
+async function switchSess() {
+  if (A.sess && A.sess.key && liveSess(A.sess)) A.sessions[A.sess.key] = A.sess;
+  const k = trackKey();
+  A.sess = liveSess(A.sessions[k]) ? A.sessions[k] : null;
+  await saveSession();
 }
 
 // 지금 무엇을 공부하는지 카드 위에 보여 줄 이름
-function planLabel() { const ap = AP(); return ap.track === 'my' ? `내 단어 · ${myName()}` : `추천 · ${scopeLabel(ap.scope)}`; }
+function planLabel() { const ap = AP(); return ap.track === 'my' ? `내 단어 · ${myName()}` : ap.track === 'syl' ? `강의 순서 · ${sylUnits(ap.scope).length}개 단원` : `추천 · ${scopeLabel(ap.scope)}`; }
 function startSession(p, mode = 'daily', label) {
+  if (A.sess && A.sess.key && liveSess(A.sess)) A.sessions[A.sess.key] = A.sess; // 하던 것은 넣어 둔다
   A.sess = newSession(p, { now: Date.now(), mode });
+  if (A.sess) A.sess.key = mode === 'daily' || mode === 'quick' ? trackKey() + (mode === 'quick' ? ':quick' : '') : 'other';
   if (A.sess) A.sess.label = label || (mode === 'quick' ? `3분 복습 · ${planLabel()}` : mode === 'sticky' ? '끈질긴 단어 다시 보기' : mode === 'pick' ? '골라서 공부' : planLabel());
   if (!A.sess.total) { toast('지금 볼 카드가 없어요'); A.sess = null; return; }
   A.view = 'study';
@@ -891,7 +924,7 @@ const ACT = {
     startSession({ ...p, reviews: p.reviews.slice(0, RULES.quickCards), fresh: [] }, 'quick');
   },
   resume: () => { A.view = 'study'; A.phase = 'front'; render(); },
-  drop: async () => { A.sess = null; await saveSession(); render(); },
+  drop: async () => { if (A.sess && A.sess.key) delete A.sessions[A.sess.key]; A.sess = null; await saveSession(); render(); },
   home: () => {
     if (A.view === 'look') applyLook(A.settings.theme, A.settings.look);
     A.view = 'home'; A.phase = 'front'; A.summary = null; A.editNote = false; A.draft = null;
@@ -994,7 +1027,7 @@ const ACT = {
     go('pace');
   },
   dscope: k => { A.draft.scope = normScope(k); render(); },
-  lsel: async id => { draftKeepMy(); A.settings.curList = id; syncMy(); draftLoadMy(); await saveSettings(); render(); },
+  lsel: async id => { draftKeepMy(); A.settings.curList = id; syncMy(); draftLoadMy(); await saveSettings(); if (A.view === 'home') await switchSess(); render(); },
   lnew: async () => {
     const name = (prompt('새 목록 이름 (예: 중간고사, 교수님 목록)', '') || '').trim();
     draftKeepMy();
@@ -1018,7 +1051,21 @@ const ACT = {
     if (!A.settings.lists.length && A.settings.track === 'my') A.settings.track = 'rec';
     syncMy(); await saveSettings(); render(); toast('목록을 지웠어요');
   },
-  track: async t => { if (A.settings.track === t) return; A.settings.track = t; await saveSettings(); render(); toast(t === 'my' ? '내 단어로 공부해요' : '추천 단어로 공부해요'); },
+  track: async t => { if (A.settings.track === t) return; A.settings.track = t; await saveSettings(); await switchSess(); render(); toast(`${planLabel()}로 공부해요${A.sess ? ' · 하던 곳부터' : ''}`); },
+  // 홈 "지금 공부 ▾": 계획 고르기 (추천 · 강의 순서 · 내 단어 목록마다)
+  planpick: async arg => {
+    A.planSheet = false;
+    if (arg === 'new-syl') { ACT.pace(); ACT.dscopemode('syl'); return; }
+    if (arg === 'new-my') {
+      const name = (prompt('새 목록 이름 (예: 중간고사, 교수님 목록)', '') || '').trim();
+      ACT.pace(); A.draft.scope = 'my'; A.draft.pace = { ...DEFAULT_MY_PACE }; draftKeepMy(); newList(name.slice(0, 20) || undefined); draftLoadMy(); await saveSettings(); ACT.pick('pace'); return;
+    }
+    if (arg.startsWith('L:')) { A.settings.curList = arg.slice(2); A.settings.track = 'my'; syncMy(); }
+    else A.settings.track = arg;
+    await saveSettings(); await switchSess(); render();
+    toast(`${planLabel()}${A.sess ? ' · 하던 곳부터 이어서' : ''}`);
+  },
+  plansheet: () => { A.planSheet = !A.planSheet; render(); },
   adj: async v => { A.settings.todayAdj = { day: dayKey(Date.now()), n: Number(v) }; await saveSettings(); render(); },
   dcw: n => { n = Math.max(1, Math.min(52, Number(n))); A.draft.cw = n; A.draft.exam = false; A.draft.pace = { mode: 'goal', end: addDays(dayKey(Date.now()), n * 7) }; render(); },
   dexam: () => {
@@ -1080,6 +1127,7 @@ const ACT = {
     else if (isSyl(d.scope)) { A.settings.syl = { scope: d.scope, pace: d.pace }; A.settings.track = 'syl'; }
     else { A.settings.scope = d.scope; A.settings.pace = d.pace; A.settings.track = 'rec'; }
     await saveSettings();
+    await switchSess();
     A.draft = null;
     if (A.first) { go('ready'); return; }
     go('home');
