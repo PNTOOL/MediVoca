@@ -362,17 +362,26 @@ function viewPace() {
   const rec = (infos.find(o => o.info.minutes <= 18) || infos[infos.length - 1]).w;
   const isWeek = d.pace.mode === 'goal' && infos.some(o => o.end === d.pace.end);
   const custom = d.pace.mode === 'goal' && d.pace.end && !isWeek;
+  // 직접 몇 주: 끝나는 날이 오늘부터 딱 N주 뒤면 그 N
+  const daysTo = d.pace.mode === 'goal' && d.pace.end ? daysBetween(today, d.pace.end) : 0;
+  const cw = d.cw || (custom && daysTo % 7 === 0 ? daysTo / 7 : 6);
+  const cwOn = !d.exam && d.pace.mode === 'goal' && (custom || d.cw) && daysTo === cw * 7;
+  const cwInfo = goalAt(addDays(today, cw * 7));
+  const cwBox = `<div class="opt dur${cwOn ? ' on' : ''}" data-act="dcw" data-arg="${cw}" role="button" tabindex="0"><span class="dot"></span><span class="grow">
+      <b>직접 정하기</b>
+      <span class="stepper"><button class="icon-btn" data-act="dcw" data-arg="${Math.max(1, cw - 1)}" aria-label="1주 줄이기">−</button><b>${cw}주</b><button class="icon-btn" data-act="dcw" data-arg="${Math.min(52, cw + 1)}" aria-label="1주 늘리기">+</button></span>
+      <small>하루 새 단어 ${cwInfo.perDay}개 · 약 ${cwInfo.minutes}분 · ${fmtDate(addDays(today, cw * 7))}까지</small></span></div>`;
   const durOpts = infos.map(({ w, end, info }) => {
-    const on = d.pace.mode === 'goal' && d.pace.end === end;
+    const on = d.pace.mode === 'goal' && d.pace.end === end && !d.cw;
     return `<button class="opt dur${on ? ' on' : ''}" data-act="dweeks" data-arg="${w}" aria-pressed="${on}">
       <span class="dot"></span><span class="grow"><b>${w}주${w === 16 ? ' (한 학기)' : ''}${w === rec ? ' <em class="badge">추천</em>' : ''}</b>
       <small>하루 새 단어 ${info.perDay}개 · 약 ${info.minutes}분 · ${fmtDate(end)}까지</small></span></button>`;
   }).join('');
   const cInfo = custom ? goalAt(d.pace.end) : null;
-  const customBox = `<div class="opt dur${custom ? ' on' : ''}" data-act="dexam" role="button" tabindex="0"><span class="dot"></span><span class="grow">
-      <b>시험 날짜로 정하기</b>${custom ? '' : '<small>누르고 날짜를 고르세요</small>'}
-      <label class="datel" style="margin-top:6px"><span class="sub">끝낼 날짜</span><input type="date" data-act="dend" min="${addDays(today, 1)}" value="${custom ? esc(d.pace.end) : ''}"></label>
-      ${cInfo ? (cInfo.ended ? '<small class="warn-t">오늘보다 뒤 날짜를 골라 주세요.</small>' : `<small>하루 새 단어 ${cInfo.perDay}개 · 약 ${cInfo.minutes}분 · ${cInfo.daysLeft}일 남음</small>`) : ''}
+  const customBox = cwBox + `<div class="opt dur${custom && !cwOn ? ' on' : ''}" data-act="dexam" role="button" tabindex="0"><span class="dot"></span><span class="grow">
+      <b>시험 날짜로 정하기</b>${custom && !cwOn ? '' : '<small>누르고 날짜를 고르세요</small>'}
+      <label class="datel" style="margin-top:6px"><span class="sub">끝낼 날짜</span><input type="date" data-act="dend" min="${addDays(today, 1)}" value="${custom && !cwOn ? esc(d.pace.end) : ''}"></label>
+      ${cInfo && !cwOn ? (cInfo.ended ? '<small class="warn-t">오늘보다 뒤 날짜를 골라 주세요.</small>' : `<small>하루 새 단어 ${cInfo.perDay}개 · 약 ${cInfo.minutes}분 · ${cInfo.daysLeft}일 남음</small>`) : ''}
     </span></div>`;
 
   const cur = d.pace.mode === 'goal' && d.pace.end ? goalAt(d.pace.end) : null;
@@ -831,10 +840,13 @@ const ACT = {
   },
   track: async t => { if (A.settings.track === t) return; A.settings.track = t; await saveSettings(); render(); toast(t === 'my' ? '내 단어로 공부해요' : '추천 단어로 공부해요'); },
   adj: async v => { A.settings.todayAdj = { day: dayKey(Date.now()), n: Number(v) }; await saveSettings(); render(); },
+  dcw: n => { n = Math.max(1, Math.min(52, Number(n))); A.draft.cw = n; A.draft.exam = false; A.draft.pace = { mode: 'goal', end: addDays(dayKey(Date.now()), n * 7) }; render(); },
   dexam: () => {
     const d = A.draft;
     const isCustom = d.pace.mode === 'goal' && d.pace.end && ![4, 8, 12, 16].some(w => d.pace.end === addDays(dayKey(Date.now()), w * 7));
-    if (!isCustom) { d.pace = { mode: 'goal', end: addDays(dayKey(Date.now()), 6 * 7) }; render(); }
+    d.cw = 0; d.exam = true;
+    if (!isCustom) d.pace = { mode: 'goal', end: addDays(dayKey(Date.now()), 6 * 7) };
+    render();
     const inp = $app.querySelector('input[type=date][data-act=dend]');
     if (inp) { inp.focus(); try { inp.showPicker && inp.showPicker(); } catch (e) { /* 일부 브라우저는 막음 */ } }
   },
@@ -871,7 +883,7 @@ const ACT = {
   dweeks: n => {
     const t = new Date(dayKey(Date.now()) + 'T12:00:00');
     t.setDate(t.getDate() + Number(n) * 7);
-    A.draft.pace = { mode: 'goal', end: dayKey(t.getTime() + 4 * 3600000) };
+    A.draft.pace = { mode: 'goal', end: dayKey(t.getTime() + 4 * 3600000) }; A.draft.cw = 0; A.draft.exam = false;
     render();
   },
   savepace: async () => {
@@ -1556,7 +1568,7 @@ document.addEventListener('change', e => {
   if (e.target.matches('input[type=file][data-act=file]')) { importFile(e.target.files[0]); e.target.value = ''; }
   if (e.target.matches('input[type=checkbox][data-act=rnbox]')) { A.settings.rn = e.target.checked; saveSettings(); }
   if (e.target.matches('input[type=date][data-act=dend]') && A.draft && e.target.value) {
-    A.draft.pace = { mode: 'goal', end: e.target.value };
+    A.draft.pace = { mode: 'goal', end: e.target.value }; A.draft.exam = true; A.draft.cw = 0;
     render();
   }
 });
