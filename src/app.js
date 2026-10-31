@@ -339,19 +339,35 @@ function viewHome() {
   const curKey = trackKey();
   const lastH = [...A.history].reverse().find(h => h.key && h.key !== 'other');
   const lastKey = lastH ? lastH.key.replace(':quick', '') : curKey;
+  const defs = planDefs();
+  const today0 = defs.find(z => z.key === curKey) || defs[0];
   const cards = planDefs().map(def => {
+    if (def.key === today0.key) return '';
     if (def.list && !def.list.ids.length) return `<li><button class="pcard empty" data-act="planopen" data-arg="${esc(def.key)}"><span class="pi">${def.icon}</span><span class="pb"><span class="pk">${def.kind}</span><b>${esc(def.name)}</b><small>아직 단어가 없어요 · 눌러서 고르기</small></span><span class="go">›</span></button></li>`;
     const r = withPlan(def, () => { const p = plan(0 + (def.key === curKey ? A.extraNew + todayAdj() : 0)); const pr = progress(IX, A.states, AP().scope); return { p, pr }; });
     const sess = def.key === (A.sess && A.sess.key) && liveSess(A.sess) ? A.sess : liveSess(A.sessions[def.key]) ? A.sessions[def.key] : null;
     const pct = r.pr.total ? Math.round(((r.pr.mastered + r.pr.long) / r.pr.total) * 100) : 0;
     const todayN = r.p.reviews.length + r.p.fresh.length;
     const line = sess ? `<em class="badge">하던 곳 ${sess.doneCards}/${sess.total}</em>` : todayN ? `오늘 복습 ${r.p.reviews.length} · 새 단어 ${r.p.fresh.length} · 약 ${r.p.minutes}분` : '<span class="ok">✓ 오늘 할 일 끝</span>';
-    return `<li><button class="pcard${def.key === lastKey ? ' last' : ''}" data-act="planopen" data-arg="${esc(def.key)}">
+    return `<li><button class="pcard" data-act="todaypick" data-arg="${esc(def.key)}">
       <span class="pi">${def.icon}</span>
       <span class="pb"><span class="pk">${def.kind}${def.key === lastKey ? ' · 마지막에 공부한 것' : ''}</span><b>${esc(def.name)}</b><small>${esc(def.sub)} · 익힘 ${pct}%</small>
         <span class="pbar"><i style="width:${pct}%"></i></span><span class="pt">${line}</span></span>
-      <span class="go">›</span></button></li>`;
+      <span class="go pick">고르기</span></button></li>`;
   }).join('');
+  // 오늘 공부할 목록 (처음엔 마지막에 공부한 목록) — 여기서 바로 시작하거나 이어서
+  const tp = today0.list && !today0.list.ids.length ? null : withPlan(today0, () => ({ p: plan(), pr: progress(IX, A.states, AP().scope) }));
+  const tSess = liveSess(A.sess) && A.sess.key === today0.key ? A.sess : null;
+  const tPct = tp && tp.pr.total ? Math.round(((tp.pr.mastered + tp.pr.long) / tp.pr.total) * 100) : 0;
+  const tN = tp ? tp.p.reviews.length + tp.p.fresh.length : 0;
+  const todayBox = `<section class="hero today-hero">
+    <div class="th-top"><span class="th-k">오늘 공부할 단어${today0.key === lastKey ? ' · 마지막에 공부한 목록' : ''}</span><button class="th-plan" data-act="planopen" data-arg="${esc(today0.key)}">그룹·진도 ›</button></div>
+    <div class="th-name"><span>${today0.icon}</span><b>${esc(today0.name)}</b></div>
+    <span class="th-sub">${esc(today0.kind)} · ${esc(today0.sub)} · 익힘 ${tPct}%</span>
+    ${tSess ? `<p class="th-line">하던 곳 ${tSess.doneCards} / ${tSess.total}장 · 남은 ${tSess.queue.length + (tSess.finalsAdded ? 0 : tSess.finals.length)}장</p><button class="btn primary big" data-act="resume">이어서 하기</button>`
+      : tN ? `<div class="hero-stats"><div><b>${tp.p.reviews.length}</b><span>복습</span></div><div><b>${tp.p.fresh.length}</b><span>새 단어</span></div><div><b>${tp.p.minutes}<small>분</small></b><span>예상 시간</span></div></div><button class="btn primary big" data-act="start">오늘 공부 시작</button>`
+      : `<p class="th-line">✓ 오늘 할 일 끝! 더 하려면 새 단어를 넣거나 시험을 봐요.</p><div class="hero-tools"><button class="htool" data-act="more">새 단어 ${RULES.batch}개 더</button><button class="htool" data-act="quizToday">오늘 단어 시험</button></div>`}
+  </section>`;
   const days = new Set(A.log.map(e => dayKey(e.t)));
   const today = dayKey(Date.now());
   const dow = (new Date(today + 'T12:00:00').getDay() + 6) % 7;
@@ -360,8 +376,9 @@ function viewHome() {
     <div class="top-r">${st ? `<span class="pill">${IC.flame}${st}일</span>` : ''}<button class="icon-round" data-act="guide" aria-label="사용법">${IC.help}</button><button class="icon-round" data-act="settings" aria-label="설정">${IC.gear}</button></div></header>
   ${inKakao ? '<div class="warn">카카오톡 안에서 열렸어요. 여기서 공부하면 기록이 따로 저장돼요. 오른쪽 위 메뉴에서 <b>다른 브라우저로 열기</b>를 눌러 주세요.</div>' : ''}
   <div class="hsearch"><span class="hs-ic">${IC.search}</span><input type="search" data-hsearch placeholder="단어 찾기 (영어·한글, 예: 빈맥, tachy)" value="${esc(A.hq || '')}" autocomplete="off"><div id="hsres">${hsearchHTML()}</div></div>
-  <p class="note" style="margin:0 4px 8px">단어 목록을 누르면 하던 곳부터 이어서 해요.</p>
-  <ul class="plist">${cards}</ul>
+  ${todayBox}
+  ${cards ? `<h2 class="sec-h" style="margin-top:4px">다른 단어 목록 <small>· 누르면 오늘 공부할 목록이 바뀌어요 (하던 곳은 따로 기억)</small></h2>
+  <ul class="plist">${cards}</ul>` : ''}
   <div class="padd">${A.settings.syl && sylUnits(A.settings.syl.scope).length ? '' : '<button class="btn" data-act="planpick" data-arg="new-syl">🏫 학교 수업 순서 만들기</button>'}<button class="btn" data-act="planpick" data-arg="new-my">✏️ 내 단어 목록 만들기</button></div>
   <section class="panel"><div class="row-between"><b>이번 주</b><span class="sub">${st ? `${st}일째 이어서 하는 중` : '오늘부터 시작해요'}</span></div><div class="week">${week}</div></section>`;
 }
@@ -1221,6 +1238,12 @@ const ACT = {
   },
   plansheet: () => { A.planSheet = !A.planSheet; render(); },
   // 홈에서 단어 목록 하나 고르기 → 그 계획 화면 (하던 곳 기억)
+  // 홈에서 오늘 공부할 목록 바꾸기 (화면은 그대로, 위 칸이 바뀐다)
+  todaypick: async key => {
+    if (key.startsWith('L:')) { A.settings.curList = key.slice(2); A.settings.track = 'my'; syncMy(); } else A.settings.track = key;
+    await saveSettings(); await switchSess(); A.extraNew = 0; render(); window.scrollTo({ top: 0, behavior: 'smooth' });
+    toast(`오늘은 "${planDefs().find(z => z.key === key).name}"${A.sess ? ' · 하던 곳부터' : ''}`);
+  },
   planopen: async key => {
     if (key.startsWith('L:')) { A.settings.curList = key.slice(2); A.settings.track = 'my'; syncMy(); if (!myIds().length) { await saveSettings(); ACT.pace(); A.draft.scope = 'my'; A.draft.pace = { ...(curL().pace || DEFAULT_MY_PACE) }; ACT.pick('pace'); return; } }
     else A.settings.track = key;

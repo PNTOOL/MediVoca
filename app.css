@@ -478,6 +478,18 @@ details.order-line > summary { list-style: none; cursor: pointer; }
 .gbtn .chip { min-height: 34px; padding: 5px 11px; font-size: 13px; }
 .gdone { font-size: 13px; color: #2f8a5b; font-weight: 600; margin-right: 4px; }
 
+.today-hero { gap: 8px; }
+.th-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.th-k { font-size: 12.5px; font-weight: 600; opacity: .85; }
+.th-plan { border: 1px solid currentColor; background: transparent; color: inherit; border-radius: 99px; padding: 4px 10px; font-size: 12.5px; cursor: pointer; opacity: .9; }
+.th-name { display: flex; align-items: center; gap: 8px; font-size: 22px; }
+.th-name b { font-size: 22px; }
+.th-sub { font-size: 13px; opacity: .8; }
+.th-line { font-size: 14.5px; margin: 4px 0; }
+.sec-h small { font-weight: 400; font-size: 12px; }
+.pcard .go.pick { font-size: 12.5px; color: var(--deep); border: 1px solid var(--line); border-radius: 99px; padding: 3px 8px; white-space: nowrap; }
+.pcard { grid-template-columns: 48px 1fr auto; }
+
 /* 준비 끝 */
 .readycard { background: var(--pri); color: var(--pri-ink); border-radius: calc(var(--r-card) + 4px); padding: 22px; display: grid; gap: 12px; margin-bottom: 12px; }
 .readycard .big { font-family: var(--display); font-weight: var(--display-w); font-size: 38px; line-height: 1.1; letter-spacing: -0.03em; }
