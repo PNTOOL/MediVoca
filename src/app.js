@@ -8,6 +8,7 @@ import {
 } from './engine.js';
 import { guideHTML } from './guide.js';
 import { THEMES, LOOKS, themeOf, applyLook } from './themes.js';
+import { QTYPES, buildQuiz, grade, summarize } from './quiz.js';
 import { makeBackup, backupName, parseBackup, mergeLogs, mergeNotes } from './backup.js';
 import { esc, rich, speakable } from './text.js';
 import * as store from './store.js';
@@ -57,6 +58,7 @@ async function boot() {
   }
   A.notes = await store.get('notes', {});
   A.lastBackup = await store.get('lastBackup', 0);
+  A.quizzes = await store.get('quizzes', []);
   const saved = await store.get('session', null);
   if (saved && saved.day === dayKey(Date.now()) && !isDone(saved)) A.sess = saved;
   applyLook(A.settings.theme, A.settings.look);
@@ -79,12 +81,14 @@ const saveSettings = () => store.set('settings', A.settings);
 
 // ───────── 그리기 ─────────
 function render() {
-  const V = { study: viewStudy, end: viewEnd, guide: () => guideHTML(false), pace: viewPace, welcome: viewWelcome, look: viewLook, ready: viewReady, stats: viewStats };
+  const V = { study: viewStudy, end: viewEnd, guide: () => guideHTML(false), pace: viewPace, welcome: viewWelcome, look: viewLook, ready: viewReady, stats: viewStats, qset: viewQuizSet, qrun: viewQuizRun, qres: viewQuizResult };
   const v = (V[A.view] || viewHome)();
   $app.innerHTML = v;
   $app.dataset.view = A.view;
   const ta = $app.querySelector('textarea');
   if (ta && A.editNote) ta.focus();
+  const qin = $app.querySelector('input.qin:not([disabled])');
+  if (qin) qin.focus();
 }
 
 const KIND = { part: '조각', word: '단어', abbr: '약어' };
@@ -263,11 +267,11 @@ function viewHome() {
   </section>
   <section class="panel"><div class="row-between"><b>이번 주</b><span class="sub">${st ? `${st}일째 이어서 하는 중` : '오늘부터 시작해요'}</span></div><div class="week">${week}</div></section>
   <nav class="tabs">
+    <button class="tab" data-act="quiz">시험 보기</button>
     <button class="tab" data-act="stats">현황</button>
-    <button class="tab${A.sheet === 'backup' ? ' on' : ''}" data-act="sheet" data-arg="backup">옮기기</button>
     <button class="tab${A.sheet === 'settings' ? ' on' : ''}" data-act="sheet" data-arg="settings">설정</button>
   </nav>
-  ${A.sheet === 'backup' ? viewBackup() : A.sheet === 'settings' ? viewSettings() : ''}
+  ${A.sheet === 'settings' ? viewSettings() + viewBackup() : ''}
   <p class="foot">단어 ${IX.items.length}개 · 기록 ${A.log.length}줄 · 이 기기: ${esc(S.label)}</p>`;
 }
 
@@ -388,6 +392,7 @@ function viewStats() {
     <h2>장별</h2>
     ${o.byUnit.map(g => `<div class="row-stat"><div class="row-between"><span>${g.unit.n}. ${esc(g.unit.short)}</span><span class="sub">${done(g)} / ${g.total}</span></div>${bar(g)}</div>`).join('')}
   </section>
+  ${(A.quizzes || []).length ? `<section class="panel"><h2>시험 기록</h2><ul class="qlog">${A.quizzes.slice(-5).reverse().map(r => `<li><span>${new Date(r.t).toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' })} · ${r.mode === 'exam' ? '실전' : '연습'} ${r.n}문항</span><b>${r.pct}점</b></li>`).join('')}</ul></section>` : ''}
   ${o.sticky.length ? `<section class="panel"><h2>끈질긴 단어</h2><p class="note">여러 번 틀린 단어예요. 내 암기법을 만들어 보세요.</p>
     <ul class="fam" style="margin-top:6px">${o.sticky.slice(0, 12).map(id => { const w = IX.get(id); return w ? `<li><b lang="en">${esc(w.t)}</b> ${esc(w.ko[0])}</li>` : ''; }).join('')}</ul></section>` : ''}
   <div class="bottom-cta"><button class="btn primary big" data-act="home">닫기</button></div>`;
@@ -754,6 +759,214 @@ function go(view) {
   render();
   window.scrollTo(0, 0);
 }
+
+// ───────── 시험 모드: 설정 → 풀기 → 결과 ─────────
+const QUIZ_MAX_LOG = 30;
+const quizPool = cfg => {
+  if (cfg.range === 'learned') return IX.items.filter(x => A.states.has(x.id));
+  if (cfg.range === 'wrong') return IX.items.filter(x => { const s = A.states.get(x.id); return s && s.fails >= 2; });
+  if (cfg.range === 'units') return IX.items.filter(x => cfg.units.includes(x.unit));
+  const set = scopeSet(IX, A.settings.scope);
+  return IX.items.filter(x => set.has(x.id));
+};
+
+function viewQuizSet() {
+  const c = A.qcfg;
+  const cnt = r => quizPool({ ...c, range: r }).length;
+  const ranges = [
+    ['learned', '공부한 단어', '지금까지 한 번이라도 본 단어'],
+    ['plan', '공부 계획 범위', scopeLabel(A.settings.scope)],
+    ['wrong', '자주 틀린 단어', '두 번 이상 틀린 단어'],
+    ['units', '단원 고르기', '시험 범위 단원만'],
+  ];
+  const rangeOpts = ranges.map(([k, t, d]) => `<button class="opt${c.range === k ? ' on' : ''}" data-act="qrange" data-arg="${k}" aria-pressed="${c.range === k}">
+    <span class="dot"></span><span class="grow"><b>${t}${k !== 'units' ? ` · ${cnt(k)}개` : ''}</b><small>${esc(d)}</small></span></button>`).join('');
+  const unitChips = c.range === 'units' ? `<div class="chips" style="margin-top:10px">${IX.units.map(u => `<button class="chip${c.units.includes(u.id) ? ' on' : ''}" data-act="qunit" data-arg="${u.id}">${u.n}. ${esc(u.short)}</button>`).join('')}</div>` : '';
+  const typeOpts = Object.entries(QTYPES).map(([k, t]) => `<button class="opt check${c.types.includes(k) ? ' on' : ''}" data-act="qtype" data-arg="${k}" aria-pressed="${c.types.includes(k)}">
+    <span class="dot box"></span><span class="grow"><b>${t.label}</b><small>${t.desc}${t.subj ? ' · 주관식' : ''}</small></span></button>`).join('');
+  const pool = quizPool(c).length;
+  const recent = (A.quizzes || []).slice(-5).reverse();
+  return `<header class="top"><h1>시험 보기</h1><button class="btn small" data-act="home">닫기</button></header>
+  <section class="panel"><h2>범위</h2><div class="opts">${rangeOpts}</div>${unitChips}</section>
+  <section class="panel"><h2>문제 유형</h2><p class="note">학교 단답식(뜻·철자·약어)과 객관식, 국시처럼 설명을 읽고 고르는 문제예요.</p><div class="opts">${typeOpts}</div></section>
+  <section class="panel"><h2>문항 수</h2><div class="chips">${[10, 20, 35, 50].map(n => `<button class="chip${c.n === n ? ' on' : ''}" data-act="qn" data-arg="${n}">${n}문항</button>`).join('')}</div>
+    <h2 style="margin-top:14px">방식</h2>
+    <div class="seg">
+      <button class="${c.mode === 'practice' ? 'on' : ''}" data-act="qmode" data-arg="practice"><b>연습</b><small>한 문제씩 바로 채점</small></button>
+      <button class="${c.mode === 'exam' ? 'on' : ''}" data-act="qmode" data-arg="exam"><b>실전</b><small>제한 시간 · 끝나고 채점</small></button>
+    </div>
+    ${c.mode === 'exam' ? `<p class="note" style="margin-top:8px">제한 시간 ${Math.ceil(Math.min(c.n, pool) * 40 / 60)}분 (문항당 40초)</p>` : ''}
+  </section>
+  ${recent.length ? `<section class="panel"><h2>지난 시험</h2><ul class="qlog">${recent.map(r => `<li><span>${new Date(r.t).toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' })} · ${r.mode === 'exam' ? '실전' : '연습'} ${r.n}문항</span><b>${r.pct}점</b></li>`).join('')}</ul></section>` : ''}
+  <div class="bottom-cta"><button class="btn primary big" data-act="qstart"${pool < 3 || !c.types.length ? ' disabled' : ''}>${pool < 3 ? '범위에 단어가 너무 적어요' : `시험 시작 · ${Math.min(c.n, pool)}문항`}</button></div>`;
+}
+
+const qCur = () => A.q.qs[A.q.i];
+const circled = i => '①②③④⑤'[i] || (i + 1) + '.';
+
+function viewQuizRun() {
+  const Q = A.q, q = qCur();
+  const x = IX.get(q.id);
+  const fb = Q.phase === 'fb' ? Q.answers[Q.i] : null;
+  const t = QTYPES[q.type];
+  let body;
+  if (q.options) {
+    body = `<div class="qopts">${q.options.map((o, i) => {
+      let cls = '';
+      if (fb) cls = o === q.answer ? ' right' : o === fb.given ? ' wrong' : ' dim';
+      return `<button class="qopt${cls}" data-act="qpick" data-arg="${i}"${fb ? ' disabled' : ''}><span class="no">${circled(i)}</span><span lang="${q.type === 'desc' ? 'en' : 'ko'}">${esc(o)}</span></button>`;
+    }).join('')}</div>`;
+  } else {
+    const en = q.type !== 'mean';
+    body = `<form class="qform" data-act="qsubmit">
+      <input class="qin" type="text" ${en ? 'lang="en" autocapitalize="off"' : ''} autocomplete="off" autocorrect="off" spellcheck="false" placeholder="${en ? '영어로 쓰기' : '한글로 쓰기'}" value="${fb ? esc(fb.given) : ''}"${fb ? ' disabled' : ''}>
+      ${fb ? '' : `<div class="row-between">${q.hint ? `<button type="button" class="link" data-act="qhint">${Q.hint ? esc(q.hint) : '힌트 보기'}</button>` : '<span></span>'}<button type="submit" class="btn primary">제출</button></div>`}
+    </form>`;
+  }
+  let fbBox = '';
+  if (fb) {
+    const parts = x.k === 'word' && (x.parts || []).length ? IX.partsOf(x).map(p => `${esc(p.t)} ${esc((p.ko || [])[0] || '')}`).join(' + ') : '';
+    fbBox = `<section class="qfb ${fb.ok ? 'ok' : 'no'}">
+      <b class="verdict">${fb.ok ? '정답이에요' : fb.empty ? '모르고 넘어갔어요' : fb.near ? '아까워요, 한두 글자 차이예요' : '틀렸어요'}</b>
+      <p><span class="sub">정답</span> <b>${esc(q.answer)}</b>${q.alt && q.alt.length ? ` <span class="sub">(${esc(q.alt.join(', '))}도 정답)</span>` : ''}</p>
+      <p lang="en"><b>${esc(x.t)}</b> = ${esc(x.ko.join(' · '))}${x.full ? ` (${esc(x.full)})` : ''}</p>
+      ${parts ? `<p class="sub">${parts}</p>` : ''}
+      ${x.mean ? `<p class="sub">${esc(x.mean)}</p>` : ''}
+    </section>`;
+  }
+  const pct = Math.round((Q.i / Q.qs.length) * 100);
+  return `<div class="studybar"><div class="progress"><i style="width:${pct}%"></i></div>
+    <div class="studyhead"><span>${Q.i + 1} / ${Q.qs.length}${Q.mode === 'exam' ? ` · <b id="qtimer">${fmtLeft()}</b>` : ''}</span>
+    <button class="close" data-act="qquit" aria-label="시험 그만두기">✕</button></div></div>
+  <section class="answer qcard">
+    <div class="meta" style="justify-content:flex-start"><span class="tag">${t.label}</span><span>${esc(IX.unitOf.get(q.id).short)}</span></div>
+    <p class="q">${esc(q.ask)}</p>
+    <div class="qprompt ${q.type === 'desc' || q.type === 'spell' ? 'ko-prompt' : ''}" ${q.type === 'desc' || q.type === 'spell' ? '' : 'lang="en"'}>${esc(q.prompt)}</div>
+    ${q.extra && fb ? `<p class="sub">${esc(q.extra)}</p>` : ''}
+    ${body}
+  </section>
+  ${fbBox}
+  ${fb ? `<div class="bottom-cta"><button class="btn primary big" data-act="qnext">${Q.i + 1 < Q.qs.length ? '다음 문제' : '결과 보기'} <small>Enter</small></button></div>` : ''}`;
+}
+
+function fmtLeft() {
+  const s = Math.max(0, Math.round((A.q.deadline - Date.now()) / 1000));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+}
+
+function viewQuizResult() {
+  const Q = A.q;
+  const s = summarize(Q.qs, Q.answers);
+  const wrong = Q.qs.map((q, i) => ({ q, a: Q.answers[i] })).filter(o => !(o.a && o.a.ok));
+  const row = (label, v) => `<div class="row-stat"><div class="row-between"><span>${label}</span><span class="sub">${v.ok} / ${v.n}</span></div><div class="bar"><i class="s-long" style="width:${Math.round((v.ok / v.n) * 100)}%"></i></div></div>`;
+  const mins = Math.max(1, Math.round((Q.ended - Q.started) / 60000));
+  return `<header class="top"><h1>시험 결과</h1></header>
+  <section class="panel qscore"><b>${s.pct}<small>점</small></b><span>${s.ok} / ${s.n} 맞힘 · ${mins}분 · ${Q.mode === 'exam' ? '실전' : '연습'}${Q.timeout ? ' · 시간 종료' : ''}</span></section>
+  <section class="panel"><h2>유형별</h2>${[...s.byType].map(([k, v]) => row(QTYPES[k].label, v)).join('')}</section>
+  <section class="panel"><h2>단원별</h2>${[...s.byUnit].map(([k, v]) => row(esc(IX.units.find(u => u.id === k).short), v)).join('')}</section>
+  ${wrong.length ? `<section class="panel"><h2>틀린 문제 ${wrong.length}개</h2><ul class="qwrong">${wrong.map(({ q, a }) => {
+    const x = IX.get(q.id);
+    return `<li><b lang="en">${esc(x.t)}</b> <span>${esc(x.ko.join(' · '))}</span><small>${esc(QTYPES[q.type].label)} · 내 답: ${a && a.given ? esc(a.given) : '(없음)'} → 정답: ${esc(q.answer)}</small></li>`;
+  }).join('')}</ul></section>` : '<section class="panel"><p class="big-line">모두 맞혔어요!</p></section>'}
+  <div class="bottom-cta">
+    ${wrong.length ? `<button class="btn primary big" data-act="qtoreview"${Q.reviewed ? ' disabled' : ''}>${Q.reviewed ? '복습에 넣었어요' : `틀린 ${wrong.length}개 내일 복습에 넣기`}</button>
+    <button class="btn" data-act="qretry">틀린 문제만 다시 풀기</button>` : ''}
+    <button class="btn ghost" data-act="home">끝내기</button>
+  </div>`;
+}
+
+let qTimer = 0;
+function startQuiz(items, cfg) {
+  const qs = buildQuiz(IX, items, { types: cfg.types, n: cfg.n, seed: Date.now() });
+  if (!qs.length) { toast('문제를 만들 수 없어요. 범위나 유형을 바꿔 보세요'); return; }
+  const now = Date.now();
+  A.q = { qs, i: 0, answers: [], phase: 'ask', mode: cfg.mode, started: now, deadline: now + qs.length * 40000, hint: false, cfg };
+  clearInterval(qTimer);
+  if (cfg.mode === 'exam') {
+    qTimer = setInterval(() => {
+      if (A.view !== 'qrun') { clearInterval(qTimer); return; }
+      const el = document.getElementById('qtimer');
+      if (el) el.textContent = fmtLeft();
+      if (Date.now() >= A.q.deadline) { A.q.timeout = true; finishQuiz(); }
+    }, 1000);
+  }
+  go('qrun');
+}
+
+async function finishQuiz() {
+  clearInterval(qTimer);
+  const Q = A.q;
+  Q.ended = Date.now();
+  const s = summarize(Q.qs, Q.answers);
+  A.quizzes = [...(A.quizzes || []), { t: Q.ended, n: s.n, ok: s.ok, pct: s.pct, mode: Q.mode }].slice(-QUIZ_MAX_LOG);
+  await store.set('quizzes', A.quizzes);
+  go('qres');
+}
+
+function answerQuiz(given) {
+  const Q = A.q;
+  if (Q.phase !== 'ask') return;
+  const res = grade(qCur(), given);
+  Q.answers[Q.i] = { given, ...res };
+  Q.hint = false;
+  if (Q.mode === 'exam') { nextQuestion(); return; }
+  Q.phase = 'fb';
+  render();
+}
+function nextQuestion() {
+  const Q = A.q;
+  if (Q.i + 1 >= Q.qs.length) { finishQuiz(); return; }
+  Q.i++; Q.phase = 'ask';
+  render();
+  window.scrollTo(0, 0);
+}
+
+Object.assign(ACT, {
+  quiz: () => {
+    A.qcfg = A.qcfg || { range: A.states.size >= 10 ? 'learned' : 'plan', units: [], types: Object.keys(QTYPES), n: 20, mode: 'practice' };
+    go('qset');
+  },
+  qrange: k => { A.qcfg.range = k; render(); },
+  qunit: id => { const u = A.qcfg.units; A.qcfg.units = u.includes(id) ? u.filter(z => z !== id) : [...u, id]; render(); },
+  qtype: k => { const t = A.qcfg.types; A.qcfg.types = t.includes(k) ? t.filter(z => z !== k) : [...t, k]; render(); },
+  qn: n => { A.qcfg.n = Number(n); render(); },
+  qmode: m => { A.qcfg.mode = m; render(); },
+  qstart: () => startQuiz(quizPool(A.qcfg), A.qcfg),
+  qpick: i => answerQuiz(qCur().options[Number(i)]),
+  qhint: () => { A.q.hint = true; render(); },
+  qnext: () => nextQuestion(),
+  qquit: () => { clearInterval(qTimer); A.q = null; go('home'); toast('시험을 그만뒀어요'); },
+  qtoreview: async () => {
+    const Q = A.q;
+    if (Q.reviewed) return;
+    const now = Date.now();
+    const ids = [...new Set(Q.qs.filter((q, i) => !(Q.answers[i] && Q.answers[i].ok)).map(q => q.id))];
+    const entries = ids.map((c, i) => ({ t: now + i, c, b: 1, d: A.settings.device }));
+    A.log.push(...entries);
+    await store.addLog(entries);
+    recompute();
+    Q.reviewed = true;
+    render();
+    toast(`틀린 ${ids.length}개를 복습에 넣었어요`);
+  },
+  qretry: () => {
+    const Q = A.q;
+    const ids = new Set(Q.qs.filter((q, i) => !(Q.answers[i] && Q.answers[i].ok)).map(q => q.id));
+    startQuiz(IX.items.filter(x => ids.has(x.id)), { ...Q.cfg, n: ids.size });
+  },
+});
+document.addEventListener('submit', e => {
+  if (!e.target.matches('form[data-act=qsubmit]')) return;
+  e.preventDefault();
+  const v = e.target.querySelector('input').value;
+  answerQuiz(v);
+});
+document.addEventListener('keydown', e => {
+  if (A.view !== 'qrun' || !A.q || e.ctrlKey || e.metaKey || e.altKey) return;
+  const k = e.key;
+  if (A.q.phase === 'fb' && (k === 'Enter' || k === ' ')) { e.preventDefault(); nextQuestion(); return; }
+  if (A.q.phase === 'ask' && qCur().options && /^[1-5]$/.test(k) && !e.target.closest('input')) { e.preventDefault(); ACT.qpick(Number(k) - 1); }
+});
 
 // ───────── 백업 ─────────
 async function sendBackup() {

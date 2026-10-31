@@ -181,6 +181,38 @@ details.units { margin-top: 12px; }
 details.units summary { font-weight: 600; }
 details.units .chip { min-height: 38px; }
 
+/* 시험 */
+.qcard { gap: 14px; }
+.qprompt { font-size: clamp(26px, 8vw, 36px); font-weight: 700; line-height: 1.25; letter-spacing: -0.01em; }
+.qprompt.ko-prompt { font-size: 20px; font-weight: 600; line-height: 1.5; }
+.qopts { display: grid; gap: 8px; }
+.qopt { display: flex; gap: 10px; align-items: flex-start; text-align: left; width: 100%; min-height: 54px; padding: 12px 14px; border-radius: 14px; border: 2px solid var(--line); background: var(--card); cursor: pointer; font-size: 16px; color: var(--ink); touch-action: manipulation; }
+.qopt .no { color: var(--sub); font-weight: 600; }
+.qopt.right { border-color: var(--pri); background: var(--tint); }
+.qopt.wrong { border-color: #c8553d; background: #fbece8; }
+.qopt.dim { opacity: 0.55; }
+.qopt:disabled { cursor: default; }
+.qform { display: grid; gap: 10px; }
+.qin { font: inherit; font-size: 20px; padding: 14px; border-radius: 14px; border: 2px solid var(--line); background: var(--bg); color: var(--ink); min-height: 56px; }
+.qin:focus { outline: none; border-color: var(--pri); }
+.qfb { border-radius: var(--r-card); padding: 16px 18px; margin-top: 12px; display: grid; gap: 6px; }
+.qfb.ok { background: var(--tint); }
+.qfb.no { background: #fbece8; }
+@media (prefers-color-scheme: dark) { .qfb.no, .qopt.wrong { background: #3a2420; } }
+.qfb .verdict { font-size: 18px; }
+.qscore { display: grid; justify-items: center; gap: 4px; padding: 24px; }
+.qscore b { font-size: 56px; line-height: 1; color: var(--deep); }
+.qscore b small { font-size: 22px; }
+.qscore span { color: var(--sub); font-size: 14px; }
+.qwrong { list-style: none; padding: 0; margin: 6px 0 0; display: grid; gap: 10px; }
+.qwrong li { display: grid; gap: 2px; border-top: 1px solid var(--line); padding-top: 8px; }
+.qwrong small { color: var(--sub); }
+.qlog { list-style: none; padding: 0; margin: 6px 0 0; display: grid; gap: 6px; }
+.qlog li { display: flex; justify-content: space-between; font-size: 14.5px; }
+#app[data-view="qset"] .bottom-cta, #app[data-view="qres"] .bottom-cta { position: sticky; bottom: calc(10px + var(--safe-b)); }
+#app[data-view="qrun"] { padding-top: 0; }
+.tabs .tab:first-child { font-weight: 600; color: var(--deep); }
+
 /* 준비 끝 */
 .readycard { background: var(--pri); color: var(--pri-ink); border-radius: calc(var(--r-card) + 4px); padding: 22px; display: grid; gap: 12px; margin-bottom: 12px; }
 .readycard .big { font-family: var(--display); font-weight: var(--display-w); font-size: 38px; line-height: 1.1; letter-spacing: -0.03em; }
