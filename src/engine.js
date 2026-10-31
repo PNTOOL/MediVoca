@@ -166,7 +166,7 @@ export function makeScope(stars, units) {
 }
 export function scopeLabel(scope) {
   if (scope === 'my') return '내 단어';
-  if (isSyl(scope)) { const d = starPart(scope); return `강의 순서 · ${sylUnits(scope).length}개 단원${d === '321' ? '' : ' · ' + (d === '32' ? '★★ 이상' : d === '3' ? '★★★만' : [...d].map(n => '★'.repeat(Number(n))).join('·'))}`; }
+  if (isSyl(scope)) { const d = starPart(scope); return `학교 수업 · ${sylUnits(scope).length}개 단원${d === '321' ? '' : ' · ' + (d === '32' ? '★★ 이상' : d === '3' ? '★★★만' : [...d].map(n => '★'.repeat(Number(n))).join('·'))}`; }
   const d = normScope(scope).split('|')[0];
   const units = scopeUnits(scope);
   const s = d === '321' ? '전체' : d === '32' ? '핵심 (★★ 이상)' : d === '3' ? '★★★만' : [...d].map(n => '★'.repeat(Number(n))).join(' · ');
@@ -584,4 +584,25 @@ export function setSummary(index, states, log, ids, { now = Date.now(), retentio
     actual: rev ? ok / rev : null, reviews: rev,
     today: todayIds.size,
   };
+}
+
+// ───────── 그룹(계통) 먼저·나중에 ─────────
+// focus = { first: [단원 id 순서], later: [단원 id] }. 원래 순서에서 first 단원을 맨 앞으로, later 단원을 맨 뒤로.
+// 이미 배운 단어는 pickNew가 건너뛰므로, 먼저 한 그룹을 다 하면 다음 그룹으로 자연스럽게 넘어간다.
+// 단어를 앞으로 당겨도 그 단어의 조각이 바로 앞에 오도록 다시 놓는다.
+export function focusOrder(index, order, focus) {
+  const first = (focus && focus.first) || [], later = (focus && focus.later) || [];
+  if (!first.length && !later.length) return order;
+  const bucket = id => { const u = index.byId.get(id).unit; const f = first.indexOf(u); return f >= 0 ? f : later.includes(u) ? 1000 + later.indexOf(u) : 500; };
+  const pos = new Map(order.map((id, i) => [id, i]));
+  const seq = [...order].sort((a, b) => bucket(a) - bucket(b) || pos.get(a) - pos.get(b));
+  const keep = new Set(order);
+  const out = [], placed = new Set();
+  const put = id => { if (!placed.has(id) && keep.has(id)) { placed.add(id); out.push(id); } };
+  for (const id of seq) {
+    const x = index.byId.get(id);
+    if (x.k === 'word') for (const f of x.parts || []) put('p:' + f);
+    put(id);
+  }
+  return out;
 }

@@ -379,7 +379,7 @@ test('강의 순서: 단원 순서대로 새 단어, 범위·이름', () => {
   assert.ok(isSyl(sc));
   assert.equal(normScope(sc), sc);
   assert.deepEqual(sylUnits(sc), ['m06', 'm05']);
-  assert.match(scopeLabel(sc), /강의 순서 · 2개 단원/);
+  assert.match(scopeLabel(sc), /학교 수업 · 2개 단원/);
   const set = scopeSet(ix, sc);
   for (const id of set) { const x = ix.byId.get(id); if (x.k !== 'part') assert.ok(['m06', 'm05'].includes(x.unit) && x.star >= 2); }
   const order = newOrder(ix, sc);
@@ -388,4 +388,20 @@ test('강의 순서: 단원 순서대로 새 단어, 범위·이름', () => {
   assert.ok(lastM6 < firstM5, '심혈관(m06)을 다 넣은 뒤 근골격(m05)');
   const p = planToday(ix, new Map(), { now: Date.UTC(2026, 9, 31, 3), scope: sc, order });
   assert.ok(p.fresh.length > 0);
+});
+
+import { focusOrder } from '../src/engine.js';
+test('그룹 먼저·나중에: 고른 단원이 앞으로, 조각은 단어 앞에', () => {
+  const ix = buildIndex(UNITS, PAIRS, CONFUSIONS);
+  const order = newOrder(ix, '321');
+  const fo = focusOrder(ix, order, { first: ['m08'], later: ['m01'] });
+  assert.equal(fo.length, order.length);
+  const firstWord = fo.find(id => ix.byId.get(id).k === 'word');
+  assert.equal(ix.byId.get(firstWord).unit, 'm08');
+  const w = ix.byId.get(firstWord);
+  for (const f of w.parts) if (ix.byId.has('p:' + f)) assert.ok(fo.indexOf('p:' + f) < fo.indexOf(firstWord));
+  const lastWord = [...fo].reverse().find(id => ix.byId.get(id).k !== 'part');
+  assert.equal(ix.byId.get(lastWord).unit, 'm01');
+  const p = planToday(ix, new Map(), { now: Date.UTC(2026, 9, 31, 3), scope: '321', order: fo, extraNew: 10 });
+  assert.ok(p.fresh.some(id => ix.byId.get(id).unit === 'm08' && ix.byId.get(id).k === 'word'));
 });
