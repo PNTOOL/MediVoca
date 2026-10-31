@@ -575,9 +575,11 @@ function groupPanel() {
       <div class="gbtn">${all ? '<span class="gdone">✓ 다 봤어요</span>' : `<button class="chip${st === 'first' ? ' on' : ''}" data-act="gfocus" data-arg="first:${uid}">${st === 'first' ? `먼저 ${fc.first.indexOf(uid) + 1}번째` : '이 단원 먼저'}</button><button class="chip${st === 'later' ? ' on' : ''}" data-act="gfocus" data-arg="later:${uid}">${st === 'later' ? '뒤로 미룸' : '뒤로 미루기'}</button>`}
         <button class="chip" data-act="gnow" data-arg="${uid}">지금 공부</button></div></li>`;
   }).join('');
-  return `<section class="panel"><div class="row-between"><h2>단원별</h2>${fc.first.length || fc.later.length ? '<button class="link" data-act="gclear">원래 순서로</button>' : ''}</div>
+  const firstNames = fc.first.map(u => IX.units.find(z => z.id === u).short);
+  return `<section class="panel"><details class="gwrap" data-gwrap${A.gopen ? ' open' : ''}><summary><span><b>단원별 진도 · 순서 바꾸기</b><small>${unitsSeen.length}개 단원${firstNames.length ? ` · 먼저: ${esc(firstNames.join(', '))}` : ''}</small></span></summary>
+    <div class="row-between" style="margin-top:8px">${fc.first.length || fc.later.length ? '<button class="link" data-act="gclear">원래 순서로</button>' : '<span></span>'}</div>
     <p class="note">"이 단원 먼저"를 누르면 그 단원부터 새 단어가 나와요. 본 단어는 건너뛰고, 다 보면 다음 단원으로 넘어가요. "뒤로 미루기"는 맨 뒤로 보내요.</p>
-    <ul class="glist">${rows}</ul></section>`;
+    <ul class="glist">${rows}</ul></details></section>`;
 }
 
 // 공부 계획 화면: 무엇을(범위) · 얼마나 빨리(하루 장수 또는 날짜)
@@ -1578,6 +1580,11 @@ const QPRESETS = [
   ['mcq', '객관식만', ['ko2en', 'parts', 'pick', 'desc']],
   ['all', '모두', Object.keys(QTYPES)],
 ];
+const QQUICK = [
+  { k: 'today', icon: '☀️', name: '오늘 공부한 단어로', desc: '10문제 · 섞어서', empty: '오늘 공부한 단어가 아직 없어요', ranges: ['today'], n: 10 },
+  { k: 'weak', icon: '🔁', name: '틀리고 헷갈린 단어로', desc: '20문제 · 섞어서', empty: '아직 틀리거나 헷갈린 단어가 없어요', ranges: ['b1', 'b2', 'qw', 'qu'], n: 20 },
+  { k: 'spell', icon: '✍️', name: '철자 연습', desc: '10문제 · 직접 쓰기', empty: '공부한 단어가 더 쌓이면 할 수 있어요', ranges: ['ws', 'hard'], n: 10, types: ['spell'] },
+];
 const QDEFAULT = () => ({ ranges: [A.states.size >= 10 ? 'learned' : 'plan'], units: [], types: ['ko2en', 'pick', 'abbr', 'desc'], n: 20, mode: 'practice' });
 
 function viewQuizSet() {
@@ -1598,7 +1605,13 @@ function viewQuizSet() {
     <span class="dot box"></span><span class="grow"><b>${t.label}</b><small>${t.desc}${t.subj ? ' · 주관식' : ''}</small></span></button>`).join('');
   const pool = quizPool(c).length;
   const recent = (A.quizzes || []).slice(-5).reverse();
-  return `<header class="top"><h1>시험 보기</h1><button class="btn small" data-act="home">닫기</button></header>
+  // 바로 시작: 자주 쓰는 3가지
+  const quick = QQUICK.map(q => { const n = quizPool({ ...QDEFAULT(), ranges: q.ranges }).length; return `<button class="qq" data-act="qquick" data-arg="${q.k}"${n < 3 ? ' disabled' : ''}>
+      <span class="qq-ic">${q.icon}</span><span class="qq-b"><b>${q.name}</b><small>${n < 3 ? q.empty : `${q.desc} · 단어 ${n.toLocaleString('ko-KR')}개`}</small></span><span class="qq-go">${n < 3 ? '' : '시작 ›'}</span></button>`; }).join('');
+  const custom = A.qcustom || !!c.ids;
+  return `<header class="top"><h1>시험</h1></header>
+  <section class="panel"><h2>바로 시작</h2><p class="note">누르면 바로 시작해요. 한 문제씩 바로 채점하는 연습 방식이에요.</p><div class="qqs">${quick}</div></section>
+  <details class="qcustom" data-qcustom${custom ? ' open' : ''}><summary>직접 정하기 <small>범위 · 문제 유형 · 문항 수 · 실전 모드</small></summary>
   <section class="panel"><div class="row-between"><h2>어떤 단어로?</h2><span class="sub">여러 개 고르면 합쳐요 · ${pool}개</span></div>
     <div class="qr">${rangeOpts}</div>${unitChips}${myBtn}${hardNote}
     <button class="btn" style="width:100%;margin-top:10px" data-act="pick" data-arg="quiz">단어 직접 골라서 시험</button></section>
@@ -1612,8 +1625,9 @@ function viewQuizSet() {
     </div>
     ${c.mode === 'exam' ? `<p class="note" style="margin-top:8px">제한 시간 ${Math.ceil(Math.min(c.n, pool) * 40 / 60)}분 (문항당 40초)</p>` : ''}
   </section>
-  ${recent.length ? `<section class="panel"><h2>지난 시험</h2><ul class="qlog">${recent.map(r => `<li><span>${new Date(r.t).toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' })} · ${r.mode === 'exam' ? '실전' : '연습'} ${r.n}문항</span><b>${r.pct}점</b></li>`).join('')}</ul></section>` : ''}
-  <div class="bottom-cta"><button class="btn primary big" data-act="qstart"${pool < 3 || !c.types.length ? ' disabled' : ''}>${pool < 3 ? '범위에 단어가 너무 적어요' : `시험 시작 · ${Math.min(c.n, pool)}문항`}</button></div>`;
+  <div class="bottom-cta"><button class="btn primary big" data-act="qstart"${pool < 3 || !c.types.length ? ' disabled' : ''}>${pool < 3 ? '범위에 단어가 너무 적어요' : `이대로 시작 · ${Math.min(c.n, pool)}문항`}</button></div>
+  </details>
+  ${recent.length ? `<section class="panel"><h2>지난 시험</h2><ul class="qlog">${recent.map(r => `<li><span>${new Date(r.t).toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' })} · ${r.mode === 'exam' ? '실전' : '연습'} ${r.n}문항</span><b>${r.pct}점</b></li>`).join('')}</ul></section>` : ''}`;
 }
 
 const qCur = () => A.q.qs[A.q.i];
@@ -1759,8 +1773,16 @@ Object.assign(ACT, {
     render();
   },
   qpreset: k => { const p = QPRESETS.find(z => z[0] === k); if (p) { A.qcfg.types = [...p[2]]; render(); } },
-  quizTodaySpell: () => { A.qcfg = { ...(A.qcfg || QDEFAULT()), ranges: ['today'], n: 10, types: ['spell'] }; delete A.qcfg.range; go('qset'); },
-  quizToday: () => { A.qcfg = { ...(A.qcfg || QDEFAULT()), ranges: ['today'], n: 10, types: QDEFAULT().types }; delete A.qcfg.range; go('qset'); },
+  // 바로 시작 (설정 화면 거치지 않고)
+  qquick: k => {
+    const q = QQUICK.find(z => z.k === k); if (!q) return;
+    const cfg = { ...QDEFAULT(), ranges: q.ranges, n: q.n, types: q.types || QDEFAULT().types, mode: 'practice' };
+    const pool = quizPool(cfg);
+    if (pool.length < 3) { toast(q.empty); return; }
+    A.qcfg = cfg; startQuiz(pool, cfg);
+  },
+  quizTodaySpell: () => { const cfg = { ...QDEFAULT(), ranges: ['today'], n: 10, types: ['spell'] }; const pool = quizPool(cfg); if (pool.length < 3) { toast('오늘 공부한 단어가 너무 적어요'); return; } A.qcfg = cfg; startQuiz(pool, cfg); },
+  quizToday: () => ACT.qquick('today'),
   qunit: id => { const u = A.qcfg.units; A.qcfg.units = u.includes(id) ? u.filter(z => z !== id) : [...u, id]; render(); },
   qtype: k => { const t = A.qcfg.types; A.qcfg.types = t.includes(k) ? t.filter(z => z !== k) : [...t, k]; render(); },
   qn: n => { A.qcfg.n = Number(n); render(); },
@@ -2039,6 +2061,8 @@ document.addEventListener('change', e => {
   if (id && A.pk) { if (e.target.checked) A.pk.excl.delete(id); else A.pk.excl.add(id); pkRefreshCount(); }
 });
 document.addEventListener('toggle', e => {
+  if (e.target.matches && e.target.matches('details[data-qcustom]')) A.qcustom = e.target.open;
+  if (e.target.matches && e.target.matches('details[data-gwrap]')) A.gopen = e.target.open;
   if (e.target.matches && e.target.matches('details[data-scopemore]') && A.draft) A.draft.scopeOpen = e.target.open;
   if (e.target.matches && e.target.matches('details.pk-unit') && A.pk) { const u = e.target.dataset.unit; if (e.target.open) A.pk.open.add(u); else A.pk.open.delete(u); }
 }, true);
@@ -2086,10 +2110,13 @@ function colFiltered(k, marks) {
 function viewMarks() {
   const c = A.mk;
   const marks = answerMarks(A.log);
-  const cur = COLS.find(z => z.k === c.col) || COLS[0];
   const counts = Object.fromEntries(COLS.map(z => [z.k, colFiltered(z.k, marks).length]));
-  const groups = [...new Set(COLS.map(z => z.g))];
-  const tiles = groups.map(g => `<div class="mk-g"><span>${g}</span><div class="mk-tiles">${COLS.filter(z => z.g === g).map(z =>
+  // 단어가 있는 모음만 보여 준다. 고른 모음이 비었으면 단어가 있는 첫 모음으로
+  if (!counts[c.col] && !c.picked) { const first = COLS.find(z => z.k !== 'my' && counts[z.k]); if (first) c.col = first.k; }
+  const shown = COLS.filter(z => z.k !== 'my' && (counts[z.k] || (c.picked && z.k === c.col)));
+  const cur = COLS.find(z => z.k === c.col) || COLS[0];
+  const groups = [...new Set(shown.map(z => z.g))];
+  const tiles = !shown.length ? '<p class="note" style="padding:4px 2px 8px">공부를 시작하면 모름·헷갈림, 시험에서 틀린 단어, ★ 중요 단어가 여기에 모여요.</p>' : groups.map(g => `<div class="mk-g"><span>${g}</span><div class="mk-tiles">${shown.filter(z => z.g === g).map(z =>
     `<button class="mk-tab ${z.cls || 'plain'}${c.col === z.k ? ' on' : ''}" data-act="mkcol" data-arg="${z.k}"><b>${counts[z.k]}</b><span>${z.icon ? z.icon + ' ' : ''}${z.name}</span></button>`).join('')}</div></div>`).join('');
   const list = colFiltered(cur.k, marks);
   const hasMode = cur.k[0] === 'b' || cur.k === 'qw' || cur.k === 'qu';
@@ -2107,7 +2134,7 @@ function viewMarks() {
     ${lists.length ? `<ul class="mylists">${listCards}</ul>` : '<p class="note">아직 내 단어장이 없어요. "+ 새 단어장"으로 만들어 보세요.</p>'}</section>
   <h2 class="sec-h">단어 모음</h2>
   <section class="mk-head">${tiles}</section>
-  <section class="panel">
+  <section class="panel"${shown.length ? '' : ' hidden'}>
     <div class="row-between"><h2>${cur.icon ? cur.icon + ' ' : ''}${cur.name} ${list.length}개</h2>${cur.sub ? `<span class="sub">${cur.sub}</span>` : ''}</div>
     ${hasMode ? `<div class="seg" style="margin:10px 0">
       <button class="${c.mode === 'last' ? 'on' : ''}" data-act="mkmode" data-arg="last"><b>마지막 결과</b><small>지금 상태</small></button>
@@ -2135,7 +2162,7 @@ async function setFlag(id, on) {
 }
 Object.assign(ACT, {
   marks: () => { A.mk = A.mk || { col: 'flag', mode: 'last', unit: '', kind: '', sort: 'recent' }; go('marks'); },
-  mkcol: k => { A.mk.col = k; render(); },
+  mkcol: k => { A.mk.col = k; A.mk.picked = true; render(); },
   mkmode: m => { A.mk.mode = m; render(); },
   flag: async id => {
     const on = !isFlag(id);

@@ -515,6 +515,22 @@ details.cite { font-size: 12.5px; color: var(--sub); }
 details.cite summary { font-size: 13px; color: var(--deep); }
 details.cite p { margin-top: 6px; }
 
+.qqs { display: grid; gap: 8px; margin-top: 10px; }
+.qq { display: grid; grid-template-columns: 44px 1fr auto; gap: 10px; align-items: center; text-align: left; padding: 14px 12px; border-radius: 14px; border: 1px solid var(--line); background: var(--card); cursor: pointer; font: inherit; color: var(--ink); }
+.qq:not(:disabled):hover { border-color: var(--pri); background: var(--tint); }
+.qq:disabled { opacity: .55; cursor: default; }
+.qq-ic { font-size: 24px; width: 44px; height: 44px; border-radius: 12px; background: var(--tint); display: flex; align-items: center; justify-content: center; }
+.qq-b b { display: block; font-size: 16px; } .qq-b small { color: var(--sub); font-size: 13px; }
+.qq-go { color: var(--deep); font-weight: 700; font-size: 14px; white-space: nowrap; }
+.qcustom > summary { list-style: none; cursor: pointer; padding: 14px 16px; border-radius: var(--r-card); border: 1px dashed var(--line); background: var(--card); margin-bottom: 12px; font-weight: 700; color: var(--deep); }
+.qcustom > summary small { display: block; font-weight: 400; color: var(--sub); font-size: 12.5px; }
+.qcustom[open] > summary { border-style: solid; }
+.gwrap > summary { list-style: none; cursor: pointer; }
+.gwrap > summary span { display: grid; }
+.gwrap > summary b::after { content: ' ▾'; color: var(--deep); }
+.gwrap[open] > summary b::after { content: ' ▴'; }
+.gwrap > summary small { color: var(--sub); font-size: 13px; }
+
 /* 준비 끝 */
 .readycard { background: var(--pri); color: var(--pri-ink); border-radius: calc(var(--r-card) + 4px); padding: 22px; display: grid; gap: 12px; margin-bottom: 12px; }
 .readycard .big { font-family: var(--display); font-weight: var(--display-w); font-size: 38px; line-height: 1.1; letter-spacing: -0.03em; }
