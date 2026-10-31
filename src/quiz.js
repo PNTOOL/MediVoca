@@ -216,21 +216,28 @@ export function buildQuiz(index, items, { types = Object.keys(QTYPES), n = 20, s
   const pool = shuffle(items, r);
   const want = types.filter(t => QTYPES[t]);
   const qs = [];
-  const used = new Set();
+  const used = new Set();      // 문제로 낸 단어
+  const usedPair = new Set();  // 단어|유형
   let ti = Math.floor(r() * want.length);
-  for (let round = 0; round < 3 && qs.length < n; round++) {
+  // 처음 세 바퀴는 단어마다 한 문제. 단어가 문항 수보다 적으면 같은 단어를 다른 유형으로 한 번 더 낸다.
+  for (let round = 0; round < 6 && qs.length < n; round++) {
+    const again = round >= 3;
     for (const x of pool) {
       if (qs.length >= n) break;
-      if (used.has(x.id)) continue;
-      const can = typesFor(x).filter(t => want.includes(t));
+      if (!again && used.has(x.id)) continue;
+      const can = typesFor(x).filter(t => want.includes(t) && !usedPair.has(x.id + '|' + t));
       if (!can.length) continue;
       // 유형이 한쪽으로 몰리지 않게 돌아가며 고른다
       let type = want[ti % want.length];
       if (!can.includes(type)) { if (round === 0) continue; type = can[Math.floor(r() * can.length)]; }
       const q = makeQuestion(index, x, type, r);
       if (!q) continue;
-      qs.push(q); used.add(x.id); ti++;
+      qs.push(q); used.add(x.id); usedPair.add(x.id + '|' + type); ti++;
     }
+  }
+  if (qs.length > pool.length) { // 같은 단어 문제가 붙어 나오지 않게 섞는다
+    const later = qs.splice(pool.length);
+    for (const q of later) qs.splice(Math.floor(r() * (qs.length + 1)), 0, q);
   }
   return qs;
 }
@@ -260,4 +267,19 @@ export function summarize(qs, answers) {
   };
   const ok = answers.filter(a => a && a.ok).length;
   return { n: qs.length, ok, pct: qs.length ? Math.round((ok / qs.length) * 100) : 0, byType: by('type'), byUnit: by('unit') };
+}
+
+// 철자가 까다로운 단어: 소리와 글자가 다른 곳(rrh, phth, 첫 pn·ps, 소리 없는 글자), 겹자음, y 모음, 아주 긴 단어
+export function spellHard(t) {
+  const w = String(t || '').toLowerCase().replace(/[^a-z]/g, '');
+  if (w.length < 5) return false;
+  let s = 0;
+  if (/rrh|phth|rhyth/.test(w)) s += 2;
+  if (/^(pn|ps|pt|gn|kn|mn)/.test(w) || /[^aeiou]pn|mn$|gm/.test(w)) s += 2;
+  if (/rh|ph|ch(?=[^aeiou])/.test(w)) s += 1;
+  if (/([bcdfgklmnprstz])\1/.test(w)) s += 1;
+  if (/ae|oe|eu|ei|ie/.test(w)) s += 1;
+  if (/[^aeiou]y[^aeiou]|y[^aeiouy]{2}/.test(w)) s += 1;
+  if (w.length >= 12) s += 1;
+  return s >= 2;
 }

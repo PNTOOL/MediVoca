@@ -8,7 +8,7 @@ import {
 } from './engine.js';
 import { guideHTML } from './guide.js';
 import { THEMES, LOOKS, themeOf, applyLook } from './themes.js';
-import { QTYPES, buildQuiz, grade, summarize } from './quiz.js';
+import { QTYPES, buildQuiz, grade, summarize, spellHard } from './quiz.js';
 import { makeBackup, backupName, parseBackup, mergeLogs, mergeNotes, mergeFlags } from './backup.js';
 import { esc, rich, speakable, normEn, normKo } from './text.js';
 import * as store from './store.js';
@@ -266,7 +266,8 @@ function viewHome() {
       <button class="btn ghost" data-act="drop">처음부터 다시 정하기</button>`;
   } else if (doneToday) {
     hero = `<p class="big-line">오늘 할 일 끝!</p><p class="sub">내일 다시 만나요. 더 하고 싶으면 새 단어를 조금 더 넣을 수 있어요.</p>
-      <button class="btn primary big" data-act="more">새 단어 ${RULES.batch}개 더</button>`;
+      <button class="btn primary big" data-act="quizToday">오늘 공부한 단어로 시험</button>
+      <button class="btn ghost" data-act="more">새 단어 ${RULES.batch}개 더</button>`;
   } else {
     hero = `<div class="hero-stats"><div><b>${p.reviews.length}</b><span>복습</span></div><div><b>${p.fresh.length}</b><span>새 단어</span></div><div><b>${p.minutes}<small>분</small></b><span>예상 시간</span></div></div>
       ${p.backlog ? '<p class="note">밀린 복습이 많아서 오늘은 새 단어를 쉬어 가요.</p>' : ''}
@@ -658,7 +659,9 @@ function viewEnd() {
   ${sticky.length ? `<section class="panel"><h2>끈질긴 단어</h2><p class="sub">여러 번 틀린 단어예요. 내 암기법을 만들어 보거나 조각부터 다시 봐요.</p>
     <ul class="fam">${sticky.map(w => `<li><b lang="en">${esc(w.t)}</b> ${esc(w.ko[0])}</li>`).join('')}</ul>
     <button class="btn" data-act="sticky">끈질긴 단어 다시 보기</button></section>` : ''}
-  <div class="checks one"><button class="btn primary big" data-act="home">끝내기</button></div>`;
+  <section class="panel endquiz"><h2>오늘 단어로 문제 풀기</h2><p class="note">방금 공부한 단어로 확인해 봐요. 문제 종류는 다음 화면에서 고를 수 있어요.</p>
+    <div class="pk-two" style="margin-top:10px"><button class="btn" data-act="quizTodaySpell">철자 쓰기 연습</button><button class="btn primary" data-act="quizToday">오늘 단어 시험</button></div></section>
+  <div class="checks one"><button class="btn big" data-act="home">끝내기</button></div>`;
 }
 
 // ───────── 동작 ─────────
@@ -904,38 +907,84 @@ function go(view) {
 
 // ───────── 시험 모드: 설정 → 풀기 → 결과 ─────────
 const QUIZ_MAX_LOG = 30;
+// 시험 범위: 여러 개를 골라 합친다(cfg.ranges). 각 범위 → 단어 id 묶음
+const QRANGES = [
+  { g: '오늘', k: 'today', name: '오늘 공부한 단어' },
+  { g: '공부 기록', k: 'learned', name: '공부한 단어 전부' },
+  { g: '공부 기록', k: 'b1', name: '모름', d: '마지막에 모름·틀림' },
+  { g: '공부 기록', k: 'b2', name: '헷갈림', d: '마지막에 헷갈림' },
+  { g: '공부 기록', k: 'fails', name: '틀린 적 있음' },
+  { g: '시험 기록', k: 'qw', name: '시험에서 틀림' },
+  { g: '시험 기록', k: 'qu', name: '시험에서 헷갈렸어요' },
+  { g: '철자', k: 'ws', name: '철자 쓰기에서 틀림' },
+  { g: '철자', k: 'hard', name: '철자가 까다로운 단어', d: 'rrh·phth·pn 같은 단어' },
+  { g: '표시·목록', k: 'flag', name: '★ 아주 중요' },
+  { g: '표시·목록', k: 'my', name: '내 단어' },
+  { g: '표시·목록', k: 'plan', name: '공부 계획 범위' },
+  { g: '직접', k: 'units', name: '단원 고르기' },
+  { g: '직접', k: 'ids', name: '직접 고른 단어' },
+];
+function rangeIds(k, cfg) {
+  const today = dayKey(Date.now());
+  const ids = xs => new Set(xs);
+  switch (k) {
+    case 'today': return ids(A.log.filter(e => dayKey(e.t) === today).map(e => e.c));
+    case 'learned': return ids(A.states.keys());
+    case 'b1': case 'b2': return ids(marksList(answerMarks(A.log), Number(k[1]), 'last').map(m => m.id));
+    case 'fails': return ids([...A.states.values()].filter(s => s.fails > 0).map(s => s.id));
+    case 'qw': return ids(Object.entries(A.qmarks).filter(([, v]) => v.last === 'w').map(([id]) => id));
+    case 'qu': return ids(Object.entries(A.qmarks).filter(([, v]) => v.last === 'u').map(([id]) => id));
+    case 'ws': return ids(Object.entries(A.qmarks).filter(([, v]) => v.ws > 0).map(([id]) => id));
+    case 'hard': return ids(IX.items.filter(x => x.k !== 'abbr' && spellHard(x.t) && (cfg.hardAll || A.states.has(x.id))).map(x => x.id));
+    case 'flag': return ids(Object.keys(A.flags).filter(isFlag));
+    case 'my': return ids(myIds());
+    case 'plan': return scopeSet(IX, AP().scope);
+    case 'units': return ids(IX.items.filter(x => (cfg.units || []).includes(x.unit)).map(x => x.id));
+    case 'ids': return ids(cfg.ids || []);
+    case 'wrong': return ids([...A.states.values()].filter(s => s.fails >= 2).map(s => s.id));
+  }
+  return new Set();
+}
+const qRanges = cfg => cfg.ranges || (cfg.range ? [cfg.range] : []);
 const quizPool = cfg => {
-  if (cfg.range === 'learned') return IX.items.filter(x => A.states.has(x.id));
-  if (cfg.range === 'wrong') return IX.items.filter(x => { const s = A.states.get(x.id); return s && s.fails >= 2; });
-  if (cfg.range === 'units') return IX.items.filter(x => cfg.units.includes(x.unit));
-  if (cfg.range === 'ids') { const set = new Set(cfg.ids || []); return IX.items.filter(x => set.has(x.id)); }
-  if (cfg.range === 'my') { const set = new Set(myIds()); return IX.items.filter(x => set.has(x.id)); }
-  const set = scopeSet(IX, AP().scope);
-  return IX.items.filter(x => set.has(x.id));
+  const all = new Set();
+  for (const k of qRanges(cfg)) for (const id of rangeIds(k, cfg)) all.add(id);
+  return IX.items.filter(x => all.has(x.id));
 };
+// 문제 유형 묶음(빠르게 고르기)
+const QPRESETS = [
+  ['mix', '섞어서 (추천)', ['ko2en', 'pick', 'abbr', 'desc']],
+  ['spell', '철자 쓰기만', ['spell']],
+  ['write', '쓰기만 (주관식)', ['mean', 'spell', 'abbr']],
+  ['mcq', '객관식만', ['ko2en', 'parts', 'pick', 'desc']],
+  ['all', '모두', Object.keys(QTYPES)],
+];
+const QDEFAULT = () => ({ ranges: [A.states.size >= 10 ? 'learned' : 'plan'], units: [], types: ['ko2en', 'pick', 'abbr', 'desc'], n: 20, mode: 'practice' });
 
 function viewQuizSet() {
   const c = A.qcfg;
-  const cnt = r => quizPool({ ...c, range: r }).length;
-  const ranges = [
-    ['learned', '공부한 단어', '지금까지 한 번이라도 본 단어'],
-    ['plan', '공부 계획 범위', scopeLabel(AP().scope)],
-    ['wrong', '자주 틀린 단어', '두 번 이상 틀린 단어'],
-    ['units', '단원 고르기', '시험 범위 단원만'],
-    ['my', '내 단어', myIds().length ? myName() : '직접 고른 단어'],
-    ...(c.ids ? [['ids', `답별 단어: ${c.idsLabel}`, '답별 단어에서 고른 목록']] : []),
-  ];
-  const rangeOpts = ranges.map(([k, t, d]) => `<button class="opt${c.range === k ? ' on' : ''}" data-act="qrange" data-arg="${k}" aria-pressed="${c.range === k}">
-    <span class="dot"></span><span class="grow"><b>${t}${k !== 'units' ? ` · ${cnt(k)}개` : ''}</b><small>${esc(d)}</small></span></button>`).join('');
-  const myBtn = c.range === 'my' ? `${listBar()}<button class="btn" style="width:100%;margin-top:10px" data-act="pick" data-arg="qset">${myIds().length ? `"${esc(myName())}" 단어 고치기` : '단어 고르기'}</button>` : '';
-  const unitChips = c.range === 'units' ? `<div class="chips" style="margin-top:10px">${IX.units.map(u => `<button class="chip${c.units.includes(u.id) ? ' on' : ''}" data-act="qunit" data-arg="${u.id}">${u.n}. ${esc(u.short)}</button>`).join('')}</div>` : '';
+  const rs = qRanges(c);
+  const groups = [...new Set(QRANGES.map(r => r.g))];
+  const rangeOpts = groups.map(g => `<div class="qr-g"><span>${g}</span><div class="chips">${QRANGES.filter(r => r.g === g && (r.k !== 'ids' || c.ids)).map(r => {
+    const n = r.k === 'units' && !(c.units || []).length ? '' : ` · ${rangeIds(r.k, c).size}`;
+    const name = r.k === 'my' && myIds().length ? `내 단어: ${esc(myName())}` : r.k === 'ids' && c.idsLabel ? esc(c.idsLabel) : r.name;
+    return `<button class="chip${rs.includes(r.k) ? ' on' : ''}" data-act="qrange" data-arg="${r.k}" aria-pressed="${rs.includes(r.k)}"${r.d ? ` title="${esc(r.d)}"` : ''}>${name}${n}</button>`;
+  }).join('')}</div></div>`).join('');
+  const myBtn = rs.includes('my') ? `${listBar()}<button class="btn" style="width:100%;margin-top:6px" data-act="pick" data-arg="qset">${myIds().length ? `"${esc(myName())}" 단어 고치기` : '단어 고르기'}</button>` : '';
+  const unitChips = rs.includes('units') ? `<p class="note" style="margin-top:10px">단원</p><div class="chips">${IX.units.map(u => `<button class="chip${c.units.includes(u.id) ? ' on' : ''}" data-act="qunit" data-arg="${u.id}">${u.n}. ${esc(u.short)}</button>`).join('')}</div>` : '';
+  const hardNote = rs.includes('hard') ? `<label class="toggle-row" style="margin-top:8px"><span class="sub">아직 안 배운 단어도 넣기</span><input type="checkbox" data-qhardall${c.hardAll ? ' checked' : ''}></label>` : '';
+  const presetOn = QPRESETS.find(([, , t]) => t.length === c.types.length && t.every(z => c.types.includes(z)));
+  const presets = `<div class="chips" style="margin-bottom:10px">${QPRESETS.map(([k, l, t]) => `<button class="chip${presetOn && presetOn[0] === k ? ' on' : ''}" data-act="qpreset" data-arg="${k}">${l}</button>`).join('')}</div>`;
   const typeOpts = Object.entries(QTYPES).map(([k, t]) => `<button class="opt check${c.types.includes(k) ? ' on' : ''}" data-act="qtype" data-arg="${k}" aria-pressed="${c.types.includes(k)}">
     <span class="dot box"></span><span class="grow"><b>${t.label}</b><small>${t.desc}${t.subj ? ' · 주관식' : ''}</small></span></button>`).join('');
   const pool = quizPool(c).length;
   const recent = (A.quizzes || []).slice(-5).reverse();
   return `<header class="top"><h1>시험 보기</h1><button class="btn small" data-act="home">닫기</button></header>
-  <section class="panel"><h2>범위</h2><div class="opts">${rangeOpts}</div>${unitChips}${myBtn}</section>
-  <section class="panel"><h2>문제 유형</h2><p class="note">학교 단답식(뜻·철자·약어)과 객관식, 국시처럼 설명을 읽고 고르는 문제예요.</p><div class="opts">${typeOpts}</div></section>
+  <section class="panel"><div class="row-between"><h2>어떤 단어로?</h2><span class="sub">여러 개 고르면 합쳐요 · ${pool}개</span></div>
+    <div class="qr">${rangeOpts}</div>${unitChips}${myBtn}${hardNote}
+    <button class="btn" style="width:100%;margin-top:10px" data-act="pick" data-arg="quiz">단어 직접 골라서 시험</button></section>
+  <section class="panel"><h2>어떤 문제로?</h2>${presets}
+    <details class="qtypes"${presetOn ? '' : ' open'}><summary>문제 유형 하나씩 고르기</summary><div class="opts" style="margin-top:8px">${typeOpts}</div></details></section>
   <section class="panel"><h2>문항 수</h2><div class="chips">${[10, 20, 35, 50].map(n => `<button class="chip${c.n === n ? ' on' : ''}" data-act="qn" data-arg="${n}">${n}문항</button>`).join('')}</div>
     <h2 style="margin-top:14px">방식</h2>
     <div class="seg">
@@ -1055,6 +1104,7 @@ async function finishQuiz() {
     const m = A.qmarks[q.id] || (A.qmarks[q.id] = { w: 0, u: 0, ok: 0, last: '', t: 0 });
     const r = !a || !a.ok ? 'w' : a.unsure ? 'u' : 'ok';
     m[r]++; m.last = r; m.t = Q.ended;
+    if (q.type === 'spell' && r === 'w') m.ws = (m.ws || 0) + 1;
   });
   await store.set('qmarks', A.qmarks);
   go('qres');
@@ -1081,10 +1131,17 @@ function nextQuestion() {
 
 Object.assign(ACT, {
   quiz: () => {
-    A.qcfg = A.qcfg || { range: A.states.size >= 10 ? 'learned' : 'plan', units: [], types: ['ko2en', 'pick', 'abbr', 'desc'], n: 20, mode: 'practice' };
+    A.qcfg = A.qcfg || QDEFAULT();
     go('qset');
   },
-  qrange: k => { A.qcfg.range = k; render(); },
+  qrange: k => {
+    const c = A.qcfg; const rs = qRanges(c);
+    c.ranges = rs.includes(k) ? rs.filter(z => z !== k) : [...rs, k]; delete c.range;
+    render();
+  },
+  qpreset: k => { const p = QPRESETS.find(z => z[0] === k); if (p) { A.qcfg.types = [...p[2]]; render(); } },
+  quizTodaySpell: () => { A.qcfg = { ...(A.qcfg || QDEFAULT()), ranges: ['today'], n: 10, types: ['spell'] }; delete A.qcfg.range; go('qset'); },
+  quizToday: () => { A.qcfg = { ...(A.qcfg || QDEFAULT()), ranges: ['today'], n: 10, types: QDEFAULT().types }; delete A.qcfg.range; go('qset'); },
   qunit: id => { const u = A.qcfg.units; A.qcfg.units = u.includes(id) ? u.filter(z => z !== id) : [...u, id]; render(); },
   qtype: k => { const t = A.qcfg.types; A.qcfg.types = t.includes(k) ? t.filter(z => z !== k) : [...t, k]; render(); },
   qn: n => { A.qcfg.n = Number(n); render(); },
@@ -1189,7 +1246,7 @@ function viewPick() {
   const k = A.pk;
   const chips = (key, map) => (Array.isArray(map) ? map : Object.entries(map)).map(([v, l]) => `<button class="chip${k[key] === v ? ' on' : ''}" data-act="pkf" data-arg="${key}:${v}">${l}</button>`).join('');
   const grpSel = `<select class="pk-grp" data-pkgrp><option value="">헷갈리는 묶음: 전체</option>${IX.groups.map((g, i) => g.ids.length ? `<option value="${i}"${k.grp === String(i) ? ' selected' : ''}>${esc(g.t)} (${g.ids.length})</option>` : '').join('')}</select>`;
-  return `<header class="top"><h1>${k.study ? '골라서 공부' : esc(myName()) + ' 고르기'}</h1><button class="btn small" data-act="pkcancel">취소</button></header>
+  return `<header class="top"><h1>${k.quiz ? '골라서 시험' : k.study ? '골라서 공부' : esc(myName()) + ' 고르기'}</h1><button class="btn small" data-act="pkcancel">취소</button></header>
   ${k.study ? '<p class="note" style="margin:-4px 2px 10px">단원·중요도·묶음으로 골라서 지금 바로 공부해요. 공부 계획은 바뀌지 않아요.</p>' : ''}
   <section class="panel pk-filter">
     <input class="pk-search" type="search" placeholder="영어·한글로 찾기 (예: cardi, 심장)" value="${esc(k.q)}" data-pksearch>
@@ -1207,7 +1264,7 @@ function viewPick() {
   <div id="pklist">${pkListHTML()}</div>
   ${k.study
     ? `<div class="bottom-cta pk-save"><p class="pk-count-line" id="pkcount">${pkCountText()}</p>
-        <div class="pk-two"><button class="btn" data-act="pkaddmy">내 단어에 더하기</button><button class="btn primary big" data-act="pkstudy">지금 공부</button></div></div>`
+        <div class="pk-two"><button class="btn" data-act="pkaddmy">내 단어에 더하기</button>${k.quiz ? '<button class="btn primary big" data-act="pkquiz">이 단어로 시험</button>' : '<button class="btn primary big" data-act="pkstudy">지금 공부</button>'}</div></div>`
     : `<div class="bottom-cta pk-save"><button class="btn primary big" data-act="pksave"><span id="pkcount">${pkCountText()}</span> · 저장</button></div>`}`;
 }
 function pkRefreshList() {
@@ -1219,6 +1276,7 @@ function pkRefreshList() {
 Object.assign(ACT, {
   // back = 돌아갈 화면. 'study'면 골라서 바로 공부(빈 선택에서 시작)
   pick: back => {
+    if (back === 'quiz') { ACT.pick('study'); A.pk.quiz = true; A.pk.back = 'qset'; render(); return; }
     const study = back === 'study';
     if (!study && !curL()) newList();
     A.pk = { sel: new Set(study ? [] : myIds()), q: '', kind: '', star: '', status: '', unit: '', grp: '', open: new Set(), back: study ? 'home' : back || A.view, study };
@@ -1238,6 +1296,12 @@ Object.assign(ACT, {
     if (fresh.length > MAXNEW) { toast(`새 단어는 한 번에 ${MAXNEW}개까지 넣었어요. 나머지는 다음에 다시 골라 주세요.`, 4000); fresh = fresh.slice(0, MAXNEW); }
     A.pk = null;
     startSession({ day: dayKey(Date.now()), reviews, fresh }, 'pick');
+  },
+  pkquiz: () => {
+    const ids = [...A.pk.sel];
+    if (ids.length < 3) { toast('3개 이상 골라 주세요'); return; }
+    A.qcfg = { ...(A.qcfg || QDEFAULT()), ranges: ['ids'], ids, idsLabel: `직접 고른 ${ids.length}개` }; delete A.qcfg.range;
+    A.pk = null; go('qset');
   },
   pkaddmy: async () => {
     if (!curL()) newList();
@@ -1274,7 +1338,7 @@ Object.assign(ACT, {
     setMyIds([...A.pk.sel]);
     await saveSettings();
     if (A.pk.back === 'pace' && A.draft) A.draft.scope = myIds().length ? 'my' : A.draft.scope;
-    if (A.qcfg && A.pk.back === 'qset') A.qcfg.range = 'my';
+    if (A.qcfg && A.pk.back === 'qset') { const rs = qRanges(A.qcfg); A.qcfg.ranges = rs.includes('my') ? rs : [...rs, 'my']; delete A.qcfg.range; }
     go(A.pk.back || 'home');
     toast(`"${myName()}"에 ${myIds().length}개를 저장했어요`);
   },
@@ -1283,6 +1347,7 @@ document.addEventListener('input', e => {
   if (e.target.matches('input[data-pksearch]') && A.pk) { A.pk.q = e.target.value; pkRefreshList(); }
 });
 document.addEventListener('change', e => {
+  if (e.target.matches('input[data-qhardall]') && A.qcfg) { A.qcfg.hardAll = e.target.checked; render(); }
   if (e.target.matches('select[data-pkgrp]') && A.pk) { A.pk.grp = e.target.value; render(); }
 });
 document.addEventListener('change', e => {
@@ -1388,7 +1453,7 @@ Object.assign(ACT, {
   },
   mkstudy: () => startSession({ day: dayKey(Date.now()), reviews: mkIds(), fresh: [] }, 'sticky'),
   mkquiz: () => {
-    A.qcfg = { ...(A.qcfg || { units: [], types: ['ko2en', 'pick', 'abbr', 'desc'], n: 20, mode: 'practice' }), range: 'ids', ids: mkIds(), idsLabel: mkName() };
+    A.qcfg = { ...(A.qcfg || QDEFAULT()), ranges: ['ids'], ids: mkIds(), idsLabel: mkName() }; delete A.qcfg.range;
     go('qset');
   },
   mkmy: async () => {

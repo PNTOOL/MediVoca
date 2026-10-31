@@ -290,6 +290,11 @@ details.units .chip { min-height: 38px; }
 .listbar-tools { font-size: 13px; margin-top: 6px; color: var(--sub); }
 .track-lists { margin: -2px 0 10px; }
 
+.qr { display: grid; gap: 8px; margin-top: 8px; }
+.qr-g > span { display: block; font-size: 12.5px; font-weight: 600; color: var(--sub); margin: 0 2px 4px; }
+.qr .chip { min-height: 38px; padding: 6px 12px; font-size: 14px; }
+.qtypes summary { cursor: pointer; font-size: 14px; color: var(--deep); padding: 4px 0; }
+
 /* 준비 끝 */
 .readycard { background: var(--pri); color: var(--pri-ink); border-radius: calc(var(--r-card) + 4px); padding: 22px; display: grid; gap: 12px; margin-bottom: 12px; }
 .readycard .big { font-family: var(--display); font-weight: var(--display-w); font-size: 38px; line-height: 1.1; letter-spacing: -0.03em; }

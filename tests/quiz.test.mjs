@@ -108,3 +108,15 @@ test('한국어 → 영어: 헷갈리는 진짜 용어와 철자 함정이 함�
   }
   assert.ok(koSim('무뇨', '핍뇨') > koSim('무뇨', '심장'));
 });
+
+import { spellHard } from '../src/quiz.js';
+test('철자가 까다로운 단어', () => {
+  for (const t of ['hemorrhage', 'dyspnea', 'diarrhea', 'pneumonia', 'psychosis']) assert.ok(spellHard(t), t);
+  for (const t of ['cardi/o', 'gastritis', 'neo-']) assert.ok(!spellHard(t), t);
+});
+test('단어가 적으면 같은 단어를 다른 유형으로 더 낸다', () => {
+  const items = IX.items.filter(x => x.k === 'word' && x.mean).slice(0, 4);
+  const qs = buildQuiz(IX, items, { n: 10, seed: 3 });
+  assert.ok(qs.length > 4);
+  assert.equal(new Set(qs.map(q => q.id + q.type)).size, qs.length);
+});
