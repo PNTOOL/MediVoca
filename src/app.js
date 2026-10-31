@@ -3,7 +3,7 @@ import { UNITS, PAIRS } from '../data/index.js';
 import { buildIndex } from './data.js';
 import {
   RULES, replay, planToday, newOrder, newSession, current, answer, isDone,
-  progress, streak, daySummary, dayKey, PACES, paceInfo, scopeSet, scopeLabel, normScope, overview,
+  progress, streak, daySummary, dayKey, PACES, paceInfo, scopeSet, scopeLabel, normScope, scopeUnits, makeScope, overview,
   minutesForCards, daysBetween,
 } from './engine.js';
 import { guideHTML } from './guide.js';
@@ -224,8 +224,14 @@ function viewHome() {
   const done = pr.mastered + pr.long;
   const pct = pr.total ? Math.round((done / pr.total) * 100) : 0;
   const speed = S.pace.mode === 'goal'
-    ? (info.ended ? `${fmtDate(S.pace.end)}까지 (지남)` : `${fmtDate(S.pace.end)}까지 · D-${info.daysLeft}`)
+    ? (info.ended ? `${fmtDate(S.pace.end)}까지 (지남)` : `${fmtDate(S.pace.end)}까지 · D-${info.daysLeft} · 하루 새 단어 ${info.perDay}개`)
     : `하루 ${S.pace.cards}장 · 약 ${info.minutes}분`;
+  // 계획 대비: 처음 정한 하루 양보다 지금 필요한 양이 많으면 늦은 것
+  let track = '';
+  if (S.pace.mode === 'goal' && S.pace.perDay0 && !info.ended && !info.reviewPhase && info.remaining) {
+    if (info.perDay > S.pace.perDay0) track = `<p class="note warn-t" style="margin-top:6px">계획보다 늦어요. 날짜를 맞추려면 하루 ${info.perDay}개씩 해야 해요.</p>`;
+    else if (info.perDay < S.pace.perDay0) track = '<p class="note" style="margin-top:6px">계획보다 빨라요. 잘하고 있어요!</p>';
+  }
 
   // 이번 주 (월~일)
   const days = new Set(A.log.map(e => dayKey(e.t)));
@@ -251,6 +257,7 @@ function viewHome() {
         <span class="sub">${speed}</span>
       </div>
     </div>
+    ${track}
     <p class="note" style="margin-top:10px">새 단어 ${pr.new} · 배우는 중 ${pr.learning} · 익힘 ${pr.mastered} · 오래 기억 ${pr.long}</p>
     ${pr.suggestNext && S.scope !== 'all' ? '<p class="note">이 범위의 80%를 익혔어요! 공부 계획에서 범위를 넓혀 보세요.</p>' : ''}
   </section>
@@ -268,54 +275,66 @@ function viewHome() {
 function viewPace() {
   const d = A.draft;
   const today = dayKey(Date.now());
-  const opt = (act, arg, on, title, desc) => `<button class="opt${on ? ' on' : ''}" data-act="${act}" data-arg="${arg}" aria-pressed="${on}">
-      <span class="dot"></span><span><b>${title}</b><small>${desc}</small></span></button>`;
-  const on = new Set([...normScope(d.scope)].map(Number));
+  const stars = new Set([...normScope(d.scope).split('|')[0]].map(Number));
+  const units = scopeUnits(d.scope);
   const STAR = [[3, '자주 나옴', '국시·시험에 자주, 매일 쓰는 말'], [2, '중요', '수업에서 꼭 배우는 말'], [1, '확장', '알아 두면 좋은 말']];
-  const scopes = STAR.map(([n, name, desc]) => {
-    const cnt = IX.items.filter(x => x.star === n).length;
-    return `<button class="opt check${on.has(n) ? ' on' : ''}" data-act="dstar" data-arg="${n}" aria-pressed="${on.has(n)}">
+  const starOpts = STAR.map(([n, name, desc]) => {
+    const cnt = IX.items.filter(x => x.star === n && (!units || units.has(x.unit))).length;
+    return `<button class="opt check${stars.has(n) ? ' on' : ''}" data-act="dstar" data-arg="${n}" aria-pressed="${stars.has(n)}">
       <span class="dot box"></span><span><b><span class="stars">${'★'.repeat(n)}</span> ${name} · ${cnt}개</b><small>${desc}</small></span></button>`;
   }).join('');
-  const scopeN = scopeSet(IX, d.scope).size;
-  const daily = PACES.map(x => {
-    const on = d.pace.mode === 'daily' && d.pace.cards === x.cards;
-    return opt('dpace', x.cards, on, `${x.label} · 하루 ${x.cards}장${x.cards === RULES.dailyCards ? ' (추천)' : ''}`, `하루 약 ${minutesForCards(x.cards)}분`);
+  const unitChips = `<button class="chip${units ? '' : ' on'}" data-act="dunitall">전체 단원</button>` +
+    IX.units.map(u => `<button class="chip${units && units.has(u.id) ? ' on' : ''}" data-act="dunit" data-arg="${u.id}">${u.n}. ${esc(u.short)}</button>`).join('');
+  const sel = paceInfo(IX, A.states, { scope: d.scope });
+
+  // 며칠 안에: 4·8·12·16주 → 하루 새 단어·시간·끝나는 날
+  const goalAt = end => paceInfo(IX, A.states, { pace: { mode: 'goal', start: today, end }, scope: d.scope });
+  const WEEKS = [4, 8, 12, 16];
+  const infos = WEEKS.map(w => ({ w, end: addDays(today, w * 7), info: goalAt(addDays(today, w * 7)) }));
+  const rec = (infos.find(o => o.info.minutes <= 18) || infos[infos.length - 1]).w;
+  const isWeek = d.pace.mode === 'goal' && infos.some(o => o.end === d.pace.end);
+  const custom = d.pace.mode === 'goal' && d.pace.end && !isWeek;
+  const durOpts = infos.map(({ w, end, info }) => {
+    const on = d.pace.mode === 'goal' && d.pace.end === end;
+    return `<button class="opt dur${on ? ' on' : ''}" data-act="dweeks" data-arg="${w}" aria-pressed="${on}">
+      <span class="dot"></span><span class="grow"><b>${w}주${w === 16 ? ' (한 학기)' : ''}${w === rec ? ' <em class="badge">추천</em>' : ''}</b>
+      <small>하루 새 단어 ${info.perDay}개 · 약 ${info.minutes}분 · ${fmtDate(end)}까지</small></span></button>`;
   }).join('');
-  const goalOn = d.pace.mode === 'goal';
-  const info = paceInfo(IX, A.states, { pace: d.pace, scope: d.scope });
-  let goal = '';
-  if (goalOn) {
-    goal = `<div class="goalbox">
-      <label class="datel">끝낼 날짜 (시험일)<input type="date" data-act="dend" min="${addDays(today, 1)}" value="${esc(d.pace.end || '')}"></label>
-      <div class="chips">${[4, 8, 12, 16].map(n => `<button class="chip${d.pace.end === addDays(today, n * 7) ? ' on' : ''}" data-act="dweeks" data-arg="${n}">${n}주 뒤</button>`).join('')}</div>
-      ${d.pace.end ? (info.ended ? '<p class="note warn-t">오늘보다 뒤 날짜를 골라 주세요.</p>' : `
-        <p class="note">${info.daysLeft}일 남음 · 새 단어는 ${info.newDays}일 동안 넣고, 마지막 ${info.reviewOnly}일은 복습만 해요.</p>
-        ${info.heavy ? `<p class="note warn-t">하루 40분이 넘어요.${normScope(d.scope) !== '3' ? ' <button class="link" data-act="dscope" data-arg="3">★★★만 먼저</button> 하는 걸 권해요.' : ' 날짜를 조금 늦출 수 있는지 봐 주세요.'}</p>` : ''}`)
-      : '<p class="note">날짜를 고르면 하루에 몇 개씩 넣을지 계산해요.</p>'}
-    </div>`;
-  }
-  // 요약: 하루 시간 · 하루 새 단어 · 다 넣는 날
+  const cInfo = custom ? goalAt(d.pace.end) : null;
+  const customBox = `<div class="opt dur${custom ? ' on' : ''}" style="cursor:default"><span class="dot"></span><span class="grow">
+      <b>시험 날짜로 정하기</b>
+      <label class="datel" style="margin-top:6px"><span class="sub">끝낼 날짜</span><input type="date" data-act="dend" min="${addDays(today, 1)}" value="${custom ? esc(d.pace.end) : ''}"></label>
+      ${cInfo ? (cInfo.ended ? '<small class="warn-t">오늘보다 뒤 날짜를 골라 주세요.</small>' : `<small>하루 새 단어 ${cInfo.perDay}개 · 약 ${cInfo.minutes}분 · ${cInfo.daysLeft}일 남음</small>`) : ''}
+    </span></div>`;
+
+  const cur = d.pace.mode === 'goal' && d.pace.end ? goalAt(d.pace.end) : null;
   let sum = '';
-  if (!goalOn || (d.pace.end && !info.ended)) {
-    const perDay = goalOn ? info.perDay : Math.round(d.pace.cards * 0.18);
-    const end = goalOn ? d.pace.end : addDays(today, info.weeks * 7);
+  if (cur && !cur.ended) {
     sum = `<section class="panel"><div class="sumcard">
-      <div><b>${info.minutes}분</b><span>하루 공부</span></div>
-      <div><b>${goalOn ? '' : '약 '}${perDay}개</b><span>하루 새 단어</span></div>
-      <div><b>${fmtDate(end)}</b><span>다 넣는 날</span></div>
-    </div><p class="note" style="margin-top:10px">하루 장수는 복습 + 새 단어예요. 복습을 먼저 채우고 남는 자리에 새 단어가 들어가요.</p></section>`;
+      <div><b>${cur.perDay}개</b><span>하루 새 단어</span></div>
+      <div><b>약 ${cur.minutes}분</b><span>하루 공부</span></div>
+      <div><b>${fmtDate(d.pace.end)}</b><span>다 끝나는 날</span></div>
+    </div>
+    <p class="note" style="margin-top:10px">새 단어는 ${cur.newDays}일 동안 넣고, 마지막 ${cur.reviewOnly}일은 복습만 해요. 하루 시간에는 복습이 들어 있어요.</p>
+    ${cur.heavy ? `<p class="note warn-t" style="margin-top:6px">하루 40분이 넘어요.${stars.has(3) && stars.size > 1 ? ' <button class="link" data-act="dstaronly">★★★만 먼저</button> 하거나' : ''} 기간을 늘려 보세요.</p>` : ''}
+    </section>`;
+  } else if (d.pace.mode === 'daily') {
+    sum = `<p class="note center">지금은 "하루 ${d.pace.cards}장" 방식이에요. 위에서 기간을 고르면 바뀌어요.</p>`;
   }
-  const disabled = goalOn && (!d.pace.end || d.pace.end <= today);
+  const disabled = !(d.pace.mode === 'daily' || (cur && !cur.ended)) || sel.total === 0;
   return `${A.first ? stepTop(2, 'tolook') : '<header class="top"><h1>공부 계획</h1><button class="btn small" data-act="home">닫기</button></header>'}
-  ${A.first ? '<h1 class="hero-title" style="font-size:26px;margin-bottom:14px">언제까지 외울까요?</h1>' : ''}
-  <section class="panel"><div class="row-between"><h2>무엇을 공부할까요?</h2><span class="sub">${scopeN}개</span></div>
-    <p class="note">중요도를 골라요. 여러 개 고를 수 있어요. 고른 단어에 필요한 조각은 함께 들어가요.</p>
-    <div class="opts">${scopes}</div></section>
-  <section class="panel"><h2>얼마나 빨리 할까요?</h2>
-    <div class="opts">${daily}
-      ${opt('dgoal', '', goalOn, '날짜까지 끝내기', '시험일을 넣으면 하루 새 단어 수를 계산해요')}
-    </div>${goal}
+  ${A.first ? '<h1 class="hero-title" style="font-size:26px;margin-bottom:14px">공부 계획을 세워요</h1>' : ''}
+  <section class="panel order-line"><b>공부 순서: 추천 순서</b>
+    <p class="sub" style="margin-top:2px">조각 → 인체 → 계통별(근골격 → 심혈관 → … → 피부) → 약어</p>
+    <p class="note" style="margin-top:4px">의학용어 수업에서 가장 흔한 순서예요. 교재 순서로 바꾸는 기능은 곧 더해요.</p></section>
+  <section class="panel"><div class="row-between"><h2>① 무엇을 외울까요?</h2><span class="sub">${sel.total}개${sel.remaining < sel.total ? ` · 남은 ${sel.remaining}` : ''}</span></div>
+    <p class="note">중요도를 고르고, 필요하면 단원을 골라요. 여러 개 고를 수 있어요.</p>
+    <div class="opts">${starOpts}</div>
+    <details class="units"${units ? ' open' : ''}><summary>단원 고르기${units ? ` (${units.size}개)` : ' (전체)'}</summary><div class="chips" style="margin-top:10px">${unitChips}</div></details>
+  </section>
+  <section class="panel"><h2>② 며칠 안에 끝낼까요?</h2>
+    <p class="note">고른 ${sel.remaining}개를 언제까지 다 외울지 정하면 하루 양을 계산해요.</p>
+    <div class="opts">${durOpts}${customBox}</div>
   </section>
   ${sum}
   ${A.first ? '' : '<p class="note center">계획을 바꿔도 지금까지 공부한 기록은 그대로예요.</p>'}
@@ -676,16 +695,27 @@ const ACT = {
   look: async id => { A.settings.look = id; applyLook(A.settings.theme, id); await saveSettings(); render(); },
   pace: () => {
     A.draft = { scope: A.settings.scope, pace: { ...A.settings.pace } };
+    if (A.first && A.draft.pace.mode !== 'goal') A.draft.pace = { mode: 'goal', end: addDays(dayKey(Date.now()), 16 * 7) };
     go('pace');
   },
   dscope: k => { A.draft.scope = normScope(k); render(); },
   dstar: n => {
-    const on = new Set([...normScope(A.draft.scope)].map(Number));
+    const on = new Set([...normScope(A.draft.scope).split('|')[0]].map(Number));
+    const units = scopeUnits(A.draft.scope);
     n = Number(n);
     if (on.has(n)) { if (on.size === 1) { toast('하나는 골라야 해요'); return; } on.delete(n); } else on.add(n);
-    A.draft.scope = [...on].sort((a, b) => b - a).join('');
+    A.draft.scope = makeScope([...on], units ? [...units] : null);
     render();
   },
+  dstaronly: () => { const units = scopeUnits(A.draft.scope); A.draft.scope = makeScope([3], units ? [...units] : null); render(); },
+  dunit: id => {
+    const stars = [...normScope(A.draft.scope).split('|')[0]].map(Number);
+    const units = new Set(scopeUnits(A.draft.scope) || []);
+    if (units.has(id)) units.delete(id); else units.add(id);
+    A.draft.scope = makeScope(stars, units.size && units.size < IX.units.length ? [...units] : null);
+    render();
+  },
+  dunitall: () => { A.draft.scope = makeScope([...normScope(A.draft.scope).split('|')[0]].map(Number), null); render(); },
   stats: () => go('stats'),
   dpace: n => { A.draft.pace = { mode: 'daily', cards: Number(n) }; render(); },
   dgoal: () => { if (A.draft.pace.mode !== 'goal') A.draft.pace = { mode: 'goal', end: '' }; render(); },
@@ -697,7 +727,10 @@ const ACT = {
   },
   savepace: async () => {
     const d = A.draft;
-    if (d.pace.mode === 'goal') d.pace.start = dayKey(Date.now());
+    if (d.pace.mode === 'goal') {
+      d.pace.start = dayKey(Date.now());
+      d.pace.perDay0 = paceInfo(IX, A.states, { pace: d.pace, scope: d.scope }).perDay;
+    }
     A.settings.scope = d.scope;
     A.settings.pace = d.pace;
     await saveSettings();

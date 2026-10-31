@@ -136,18 +136,30 @@ export function newOrder(index, scope = 'all') {
 // 범위는 중요도(★) 조합으로 정한다: '321' 전체, '32' ★★ 이상(핵심), '3' ★★★만, '1' ★만 …
 // 예전 이름(star3 · core · all)도 받는다. 범위 안 단어에 필요한 조각은 별이 낮아도 함께 넣는다.
 const OLD_SCOPES = { star3: '3', core: '32', all: '321' };
+// 범위 문자열: '★ 숫자' 또는 '★ 숫자|단원.단원' (예: '32|m05.m06' = 근골격·심혈관의 ★★ 이상)
+const starPart = scope => String(OLD_SCOPES[scope] || scope || '321').split('|')[0];
 export function scopeStars(scope = 'all') {
-  const d = OLD_SCOPES[scope] || String(scope);
-  const set = new Set([...d].map(Number).filter(n => n >= 1 && n <= 3));
+  const set = new Set([...starPart(scope)].map(Number).filter(n => n >= 1 && n <= 3));
   return set.size ? set : new Set([1, 2, 3]);
 }
-export const normScope = scope => [...scopeStars(scope)].sort((a, b) => b - a).join('');
+export function scopeUnits(scope) {
+  const u = String(scope || '').split('|')[1];
+  const list = (u || '').split('.').filter(Boolean);
+  return list.length ? new Set(list) : null;
+}
+export function normScope(scope) {
+  const stars = [...scopeStars(scope)].sort((a, b) => b - a).join('');
+  const units = scopeUnits(scope);
+  return units ? stars + '|' + [...units].sort().join('.') : stars;
+}
+export function makeScope(stars, units) {
+  return normScope([...stars].join('') + (units && units.length ? '|' + units.join('.') : ''));
+}
 export function scopeLabel(scope) {
-  const d = normScope(scope);
-  if (d === '321') return '전체';
-  if (d === '32') return '핵심 (★★ 이상)';
-  if (d === '3') return '★★★만';
-  return [...d].map(n => '★'.repeat(Number(n))).join(' · ');
+  const d = normScope(scope).split('|')[0];
+  const units = scopeUnits(scope);
+  const s = d === '321' ? '전체' : d === '32' ? '핵심 (★★ 이상)' : d === '3' ? '★★★만' : [...d].map(n => '★'.repeat(Number(n))).join(' · ');
+  return units ? `${s} · ${units.size}개 단원` : s;
 }
 export const SCOPES = {
   star3: { label: '★★★만', test: x => x.star === 3 },
@@ -156,9 +168,11 @@ export const SCOPES = {
 };
 export function scopeSet(index, scope = 'all') {
   const stars = scopeStars(scope);
+  const units = scopeUnits(scope);
   const set = new Set();
   for (const x of index.items) {
     if (!stars.has(x.star)) continue;
+    if (units && !units.has(x.unit)) continue;
     set.add(x.id);
     if (x.k === 'word') for (const f of x.parts || []) if (index.byId.has('p:' + f)) set.add('p:' + f);
   }

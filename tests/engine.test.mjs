@@ -299,3 +299,16 @@ test('현황: 상태별·★별·장별 수, 실제 기억률, 앞으로 7일 �
   assert.equal(o.ahead.length, 7);
   assert.equal(o.studyDays, 3);
 });
+
+test('범위에 단원을 더할 수 있다 (★ + 단원)', async () => {
+  const { scopeUnits, makeScope } = await import('../src/engine.js');
+  const sc = makeScope([3, 2], ['m06', 'm05']);
+  assert.equal(sc, '32|m05.m06');
+  assert.deepEqual([...scopeUnits(sc)], ['m05', 'm06']);
+  assert.equal(scopeLabel(sc), '핵심 (★★ 이상) · 2개 단원');
+  const set = scopeSet(IX, sc);
+  for (const id of set) { const x = IX.get(id); assert.ok(['m05', 'm06'].includes(x.unit) || x.k === 'part', id); assert.ok(x.star >= 2 || x.k === 'part'); }
+  const p = planToday(IX, new Map(), { now: T0, scope: sc });
+  for (const id of p.fresh) assert.ok(set.has(id));
+  assert.equal(normScope('321'), '321');
+});
