@@ -3,17 +3,25 @@ import { UNITS, PAIRS } from '../data/index.js';
 import { buildIndex } from './data.js';
 import {
   RULES, replay, planToday, newOrder, newSession, current, answer, isDone,
-  statusOf, progress, streak, daySummary, dayKey, isSticky,
+  progress, streak, daySummary, dayKey, SCOPES, PACES, paceInfo, scopeSet,
+  minutesForCards, daysBetween,
 } from './engine.js';
+import { guideHTML } from './guide.js';
 import { makeBackup, backupName, parseBackup, mergeLogs, mergeNotes } from './backup.js';
 import { esc, rich, speakable } from './text.js';
 import * as store from './store.js';
 
 const IX = buildIndex(UNITS, PAIRS);
-const ORDER = newOrder(IX);
+const ORDERS = {};
+const orderFor = scope => ORDERS[scope] || (ORDERS[scope] = newOrder(IX, scope));
 const $app = document.getElementById('app');
 
-const DEFAULTS = { retention: 0.9, rn: false, rate: 0.85, label: '', device: '' };
+const DEFAULTS = {
+  retention: 0.9, rn: false, rate: 0.85, label: '', device: '',
+  scope: 'all',                                  // 공부 범위: star3 | core | all
+  pace: { mode: 'daily', cards: RULES.dailyCards }, // 공부 속도
+  seenGuide: false,                              // 처음 안내를 봤는지
+};
 const A = {
   log: [],
   states: new Map(),
@@ -21,7 +29,9 @@ const A = {
   notes: {},           // 내 암기법 { id: { s, t } }
   lastBackup: 0,
   sess: null,          // 지금 세션
-  view: 'home',        // home | study | end
+  view: 'home',        // home | study | end | guide | pace
+  first: false,        // 처음 실행: 안내 → 계획 → 홈
+  draft: null,         // 계획 화면에서 고르는 중인 값
   phase: 'front',      // front | check | explain
   pick: 0,             // 앞면에서 고른 단계
   hint: false,
@@ -46,6 +56,7 @@ async function boot() {
   const saved = await store.get('session', null);
   if (saved && saved.day === dayKey(Date.now()) && !isDone(saved)) A.sess = saved;
   recompute();
+  if (!A.settings.seenGuide && !A.log.length) { A.first = true; A.view = 'guide'; }
   render();
   await receiveShared();
   if (!store.ok) toast('이 창에서는 기록을 저장할 수 없어요. 비공개 창이 아닌 보통 창으로 열어 주세요.', 6000);
@@ -55,11 +66,16 @@ function recompute() {
   A.states = replay(A.log, { retention: A.settings.retention });
 }
 
-const plan = (extra = A.extraNew) => planToday(IX, A.states, { now: Date.now(), retention: A.settings.retention, extraNew: extra, order: ORDER });
+const plan = (extra = A.extraNew) => planToday(IX, A.states, {
+  now: Date.now(), retention: A.settings.retention, extraNew: extra,
+  pace: A.settings.pace, scope: A.settings.scope, order: orderFor(A.settings.scope),
+});
+const saveSettings = () => store.set('settings', A.settings);
 
 // ───────── 그리기 ─────────
 function render() {
-  const v = A.view === 'study' ? viewStudy() : A.view === 'end' ? viewEnd() : viewHome();
+  const v = A.view === 'study' ? viewStudy() : A.view === 'end' ? viewEnd()
+    : A.view === 'guide' ? guideHTML(A.first) : A.view === 'pace' ? viewPace() : viewHome();
   $app.innerHTML = v;
   $app.dataset.view = A.view;
   const ta = $app.querySelector('textarea');
@@ -73,7 +89,8 @@ const koMain = x => (x.ko || []).join(' · ');
 
 function viewHome() {
   const p = plan();
-  const pr = progress(IX, A.states, 'core');
+  const scope = A.settings.scope;
+  const pr = progress(IX, A.states, scope === 'all' ? 'core' : scope);
   const st = streak(A.log);
   const resume = A.sess && !isDone(A.sess);
   const total = p.reviews.length + p.fresh.length;
@@ -93,17 +110,21 @@ function viewHome() {
   } else {
     today = `<p class="big-line">복습 <b>${p.reviews.length}</b> · 새 단어 <b>${p.fresh.length}</b> · 약 ${p.minutes}분</p>
       ${p.backlog ? '<p class="note">밀린 복습이 많아서 오늘은 새 단어를 쉬어 가요.</p>' : ''}
+      ${p.goal && p.goal.reviewPhase ? '<p class="note">목표일 전 복습만 하는 기간이에요. 새 단어는 없어요.</p>' : ''}
+      ${p.goal && p.goal.ended ? '<p class="note">목표 날짜가 지났어요. 지금은 하루 50장으로 해요. 공부 계획에서 새로 정해 보세요.</p>' : ''}
       ${p.dueTotal > p.reviews.length ? `<p class="note">남은 복습 ${p.dueTotal - p.reviews.length}장은 내일로 나눠요.</p>` : ''}
       <button class="btn primary big" data-act="start">오늘 공부 시작</button>
       <button class="btn ghost" data-act="quick"${p.dueTotal ? '' : ' disabled'}>3분 모드 · 복습 ${Math.min(RULES.quickCards, p.dueTotal)}장</button>`;
   }
 
   return `
-  <header class="top"><h1>메디보카</h1><span class="streak" title="연속 공부일">🔥 ${st}일</span></header>
+  <header class="top"><h1>메디보카</h1><div class="top-r"><span class="streak" title="연속 공부일">🔥 ${st}일</span>
+    <button class="btn small" data-act="guide">사용법</button></div></header>
   ${inKakao ? '<div class="warn">카카오톡 안에서 열렸어요. 여기서 공부하면 기록이 따로 저장돼요. 오른쪽 위 메뉴에서 <b>다른 브라우저로 열기</b>를 눌러 주세요.</div>' : ''}
   <section class="panel today">${today}</section>
+  ${planCard()}
   <section class="panel">
-    <div class="row-between"><h2>핵심 단어 진도</h2><span class="sub">${pr.mastered + pr.long} / ${pr.total} 익힘</span></div>
+    <div class="row-between"><h2>${scope === 'star3' ? '★★★' : '핵심'} 단어 진도</h2><span class="sub">${pr.mastered + pr.long} / ${pr.total} 익힘</span></div>
     <div class="bar" aria-hidden="true">
       <i class="s-long" style="width:${pct(pr.long)}%"></i><i class="s-mastered" style="width:${pct(pr.mastered)}%"></i><i class="s-learning" style="width:${pct(pr.learning)}%"></i>
     </div>
@@ -119,6 +140,71 @@ function viewHome() {
   </nav>
   ${A.sheet === 'backup' ? viewBackup() : A.sheet === 'settings' ? viewSettings() : ''}
   <p class="foot">단어 ${IX.items.length}개 · 기록 ${A.log.length}줄 · 이 기기: ${esc(A.settings.label)}</p>`;
+}
+
+// 홈의 "공부 계획" 칸
+function planCard() {
+  const S = A.settings;
+  const info = paceInfo(IX, A.states, { pace: S.pace, scope: S.scope });
+  let speed;
+  if (S.pace.mode === 'goal') {
+    const end = new Date(S.pace.end + 'T12:00:00').toLocaleDateString('ko-KR', { month: 'long', day: 'numeric' });
+    speed = info.ended ? `${end}까지 (지남)` : `${end}까지 · D-${info.daysLeft} · 하루 새 단어 ${info.perDay}개`;
+  } else {
+    const ps = PACES.find(x => x.cards === S.pace.cards);
+    speed = `${ps ? ps.label + ' · ' : ''}하루 ${S.pace.cards}장 · 약 ${info.minutes}분`;
+  }
+  return `<section class="panel plan">
+    <div class="row-between"><h2>공부 계획</h2><button class="link" data-act="pace">바꾸기</button></div>
+    <p><b>${SCOPES[S.scope].label}</b> ${info.total}개 중 남은 새 단어 ${info.remaining}개</p>
+    <p class="sub">${speed}${S.pace.mode !== 'goal' && info.remaining ? ` · 약 ${info.weeks}주면 다 넣어요` : ''}</p>
+  </section>`;
+}
+
+// 공부 계획 화면: 무엇을(범위) · 얼마나 빨리(하루 장수 또는 날짜)
+function viewPace() {
+  const d = A.draft;
+  const today = dayKey(Date.now());
+  const opt = (act, arg, on, title, desc) => `<button class="opt${on ? ' on' : ''}" data-act="${act}" data-arg="${arg}" aria-pressed="${on}">
+      <span class="dot"></span><span><b>${title}</b><small>${desc}</small></span></button>`;
+  const scopes = Object.entries(SCOPES).map(([k, v]) => {
+    const n = scopeSet(IX, k).size;
+    const left = paceInfo(IX, A.states, { scope: k }).remaining;
+    const desc = k === 'star3' ? '시험이 급할 때. 가장 자주 나오는 것부터' : k === 'core' ? '1학년 의학용어 수업 범위 (★ 확장은 빼고)' : '핵심을 다 넣은 뒤 확장(★)까지';
+    return opt('dscope', k, d.scope === k, `${v.label} · ${n}개${left < n ? ` (남은 ${left})` : ''}`, desc);
+  }).join('');
+  const daily = PACES.map(x => {
+    const info = paceInfo(IX, A.states, { pace: { mode: 'daily', cards: x.cards }, scope: d.scope });
+    const on = d.pace.mode === 'daily' && d.pace.cards === x.cards;
+    return opt('dpace', x.cards, on, `${x.label} · 하루 ${x.cards}장${x.cards === RULES.dailyCards ? ' (추천)' : ''}`,
+      `하루 약 ${minutesForCards(x.cards)}분 · 남은 단어를 약 ${info.weeks}주에 다 넣어요`);
+  }).join('');
+  const goalOn = d.pace.mode === 'goal';
+  let goal = '';
+  if (goalOn) {
+    const info = d.pace.end ? paceInfo(IX, A.states, { pace: d.pace, scope: d.scope }) : null;
+    const wk = n => { const t = new Date(today + 'T12:00:00'); t.setDate(t.getDate() + n * 7); return dayKey(t.getTime() + 4 * 3600000); };
+    goal = `<div class="goalbox">
+      <label class="datel">끝낼 날짜 (시험일)<input type="date" data-act="dend" min="${dayKey(Date.now() + 86400000)}" value="${esc(d.pace.end || '')}"></label>
+      <div class="chips">${[4, 8, 12, 16].map(n => `<button class="chip${d.pace.end === wk(n) ? ' on' : ''}" data-act="dweeks" data-arg="${n}">${n}주 뒤</button>`).join('')}</div>
+      ${info ? (info.ended ? '<p class="note warn-t">오늘보다 뒤 날짜를 골라 주세요.</p>' : `
+        <p class="calc">하루 새 단어 <b>${info.perDay}</b>개 · 하루 약 <b>${info.minutes}</b>분</p>
+        <p class="note">${info.daysLeft}일 남음 · 새 단어는 ${info.newDays}일 동안 넣고, 마지막 ${info.reviewOnly}일은 복습만 해요.</p>
+        ${info.heavy ? `<p class="note warn-t">하루 40분이 넘어요.${d.scope !== 'star3' ? ' <button class="link" data-act="dscope" data-arg="star3">★★★만 먼저</button> 하는 걸 권해요.' : ' 날짜를 조금 늦출 수 있는지 봐 주세요.'}</p>` : ''}`)
+      : '<p class="note">날짜를 고르면 하루에 몇 개씩 넣을지 계산해요.</p>'}
+    </div>`;
+  }
+  return `
+  <header class="top"><h1>공부 계획</h1>${A.first ? '' : '<button class="btn small" data-act="home">닫기</button>'}</header>
+  <section class="panel"><h2>무엇을 공부할까요?</h2><div class="opts">${scopes}</div></section>
+  <section class="panel"><h2>얼마나 빨리 할까요?</h2>
+    <div class="opts">${daily}
+      ${opt('dgoal', '', goalOn, '날짜까지 끝내기', '시험일을 넣으면 하루 새 단어 수를 계산해요')}
+    </div>${goal}
+    ${goalOn ? '' : '<p class="note">하루 장수는 복습 + 새 단어예요. 복습을 먼저 채우고 남는 자리에 새 단어가 들어가요.</p>'}
+  </section>
+  <p class="note center">계획을 바꿔도 지금까지 공부한 기록은 그대로예요.</p>
+  <div class="checks one"><button class="btn primary big" data-act="savepace"${goalOn && (!d.pace.end || d.pace.end <= today) ? ' disabled' : ''}>이 계획으로 공부하기</button></div>`;
 }
 
 function viewBackup() {
@@ -354,7 +440,7 @@ const ACT = {
   resume: () => { A.view = 'study'; A.phase = 'front'; render(); },
   drop: async () => { A.sess = null; await saveSession(); render(); },
   home: () => {
-    A.view = 'home'; A.phase = 'front'; A.summary = null; A.editNote = false;
+    A.view = 'home'; A.phase = 'front'; A.summary = null; A.editNote = false; A.draft = null;
     render();
     if (A.sess && !isDone(A.sess)) toast('하던 곳이 저장됐어요');
   },
@@ -392,6 +478,37 @@ const ACT = {
     A.editNote = false;
     render();
     toast('내 암기법을 저장했어요');
+  },
+  guide: () => { A.view = 'guide'; A.first = false; render(); window.scrollTo(0, 0); },
+  firstplan: async () => { A.settings.seenGuide = true; await saveSettings(); ACT.pace(); },
+  pace: () => {
+    A.draft = { scope: A.settings.scope, pace: { ...A.settings.pace } };
+    A.view = 'pace';
+    render();
+    window.scrollTo(0, 0);
+  },
+  dscope: k => { if (SCOPES[k]) { A.draft.scope = k; render(); } },
+  dpace: n => { A.draft.pace = { mode: 'daily', cards: Number(n) }; render(); },
+  dgoal: () => { if (A.draft.pace.mode !== 'goal') A.draft.pace = { mode: 'goal', end: '' }; render(); },
+  dweeks: n => {
+    const t = new Date(dayKey(Date.now()) + 'T12:00:00');
+    t.setDate(t.getDate() + Number(n) * 7);
+    A.draft.pace = { mode: 'goal', end: dayKey(t.getTime() + 4 * 3600000) };
+    render();
+  },
+  savepace: async () => {
+    const d = A.draft;
+    if (d.pace.mode === 'goal') d.pace.start = dayKey(Date.now());
+    A.settings.scope = d.scope;
+    A.settings.pace = d.pace;
+    A.settings.seenGuide = true;
+    await saveSettings();
+    A.first = false;
+    A.draft = null;
+    A.view = 'home';
+    render();
+    window.scrollTo(0, 0);
+    toast('공부 계획을 정했어요');
   },
   sheet: k => { A.sheet = A.sheet === k ? null : k; render(); },
   ret: async v => { A.settings.retention = Number(v); await store.set('settings', A.settings); recompute(); render(); },
@@ -484,6 +601,10 @@ document.addEventListener('click', e => {
 });
 document.addEventListener('change', e => {
   if (e.target.matches('input[type=file][data-act=file]')) { importFile(e.target.files[0]); e.target.value = ''; }
+  if (e.target.matches('input[type=date][data-act=dend]') && A.draft) {
+    A.draft.pace = { mode: 'goal', end: e.target.value };
+    render();
+  }
 });
 document.addEventListener('keydown', e => {
   if (A.view !== 'study' || e.target.closest('textarea, input') || e.ctrlKey || e.metaKey || e.altKey) return;
