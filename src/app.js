@@ -9,6 +9,7 @@ import {
 import { guideHTML } from './guide.js';
 import { THEMES, LOOKS, themeOf, applyLook } from './themes.js';
 import { QTYPES, buildQuiz, grade, summarize, spellHard } from './quiz.js';
+import { runFunnel, countIf, groupsIn, STEPS } from './funnel.js';
 import { makeBackup, backupName, parseBackup, mergeLogs, mergeNotes, mergeFlags } from './backup.js';
 import { esc, rich, speakable, normEn, normKo } from './text.js';
 import * as store from './store.js';
@@ -1461,85 +1462,102 @@ document.addEventListener('keydown', e => {
   if (A.q.phase === 'ask' && qCur().options && /^[1-5]$/.test(k) && !e.target.closest('input')) { e.preventDefault(); ACT.qpick(Number(k) - 1); }
 });
 
-// ───────── 내 단어 고르기 ─────────
-// 종류·중요도·상태·계통으로 걸러서 묶음째 고르고, 하나씩도 고친다. 목록 붙여넣기로 한 번에 찾기.
-const PK_KIND = { '': '전체', part: '조각', word: '단어', abbr: '약어' };
-const PK_STATUS = { '': '전체', new: '새 단어', learning: '배우는 중', wrong: '틀린 적 있음' };
-// 마지막에 누른 답(공부 기록) — 고르는 화면이 열려 있는 동안 한 번만 계산
-function pkMarks() { if (!A.pk._marks) A.pk._marks = answerMarks(A.log); return A.pk._marks; }
-function pkFiltered() {
-  const k = A.pk;
-  const q = k.q.trim().toLowerCase();
-  return IX.items.filter(x => {
-    if (k.kind && x.k !== k.kind) return false;
-    if (k.star && !k.star.split('').includes(String(x.star))) return false;
-    if (k.ans) { const m = pkMarks().get(x.id); if (!m || !k.ans.split('').includes(String(m.last))) return false; }
-    if (k.unit && x.unit !== k.unit) return false;
-    if (k.grp && !IX.groups[Number(k.grp)].ids.includes(x.id)) return false;
-    if (k.status) {
-      const s = A.states.get(x.id);
-      if (k.status === 'new' && s) return false;
-      if (k.status === 'learning' && !(s && s.goodDays.size < 3)) return false;
-      if (k.status === 'wrong' && !(s && s.fails > 0)) return false;
-    }
-    if (q && !(x.t.toLowerCase().includes(q) || x.ko.some(z => z.includes(q)) || (x.full || '').toLowerCase().includes(q))) return false;
-    return true;
-  });
+// ───────── 단어 고르기: 위에서부터 한 단계씩 좁혀 가기 (src/funnel.js) ─────────
+// ① 어디서 → ② 중요도 → ③ 종류 → ④ 계통 → ⑤ 헷갈리는 용어 → 결과(처음엔 전부 체크, 빼고 싶은 것만 풀기)
+const PK_BASE = () => ({ src: 'all', ans: '', star: '', kind: '', units: [], conf: 'off', grp: -1, mates: false });
+function pkCtx() { if (!A.pk._ctx) A.pk._ctx = { states: A.states, marks: answerMarks(A.log), listIds: A.pk.study ? [] : myIds() }; return A.pk._ctx; }
+function pkRun() { return runFunnel(IX, pkCtx(), A.pk.f); }
+function pkSelected() {
+  const k = A.pk; const ids = new Set(pkRun().result.map(x => x.id));
+  for (const id of k.extra) ids.add(id);
+  for (const id of k.excl) ids.delete(id);
+  return ids;
+}
+function pkVisible() {
+  const k = A.pk; const q = (k.q || '').trim().toLowerCase();
+  const res = pkRun().result.slice();
+  const have = new Set(res.map(x => x.id));
+  for (const id of k.extra) if (!have.has(id)) { const x = IX.get(id); if (x) res.push(x); }
+  if (!q) return res;
+  const nq = normKo(q);
+  return res.filter(x => x.t.toLowerCase().includes(q) || x.ko.some(z => normKo(z).includes(nq)) || (x.full || '').toLowerCase().includes(q));
 }
 function pkCountText() {
-  const sel = A.pk.sel;
+  const sel = pkSelected();
   const c = { part: 0, word: 0, abbr: 0 };
   for (const id of sel) { const x = IX.get(id); if (x) c[x.k]++; }
-  return `선택 ${sel.size}개 <small>(조각 ${c.part} · 단어 ${c.word} · 약어 ${c.abbr})</small>`;
+  return `<b>${sel.size}개</b> 골랐어요 <small>(조각 ${c.part} · 단어 ${c.word} · 약어 ${c.abbr})</small>`;
 }
 function pkListHTML() {
-  const list = pkFiltered();
-  const filtering = A.pk.q || A.pk.kind || A.pk.star || A.pk.ans || A.pk.status || A.pk.unit || A.pk.grp;
+  const k = A.pk;
+  const list = pkVisible();
+  if (!list.length) return `<p class="note center" style="padding:16px">남은 단어가 없어요. 위에서 고른 것을 조금 풀어 보세요.</p>`;
   const byUnit = new Map();
   for (const x of list) { if (!byUnit.has(x.unit)) byUnit.set(x.unit, []); byUnit.get(x.unit).push(x); }
-  if (!list.length) return `<p class="note center" style="padding:20px">찾는 단어가 없어요.${A.pk.kind || A.pk.star || A.pk.ans || A.pk.status || A.pk.unit || A.pk.grp ? ' 위의 거르기를 \'전체\'로 바꿔 보세요.' : ''}</p>`;
-  return `<div class="row-between pk-bulk"><span class="sub">보이는 단어 ${list.length}개</span>
-      <span><button class="link" data-act="pkall" data-arg="1">모두 선택</button> · <button class="link" data-act="pkall" data-arg="0">모두 해제</button></span></div>` +
+  const big = list.length > 120 && !k.q;
+  return `<div class="row-between pk-bulk"><span class="sub">${k.q ? `찾은 단어 ${list.length}개` : `남은 단어 ${list.length}개 · 처음엔 모두 체크돼 있어요`}</span>
+      <span><button class="link" data-act="pkall" data-arg="1">모두 체크</button> · <button class="link" data-act="pkall" data-arg="0">모두 해제</button></span></div>` +
     [...byUnit].map(([uid, xs]) => {
       const u = IX.units.find(z => z.id === uid);
-      const on = xs.filter(x => A.pk.sel.has(x.id)).length;
-      return `<details class="pk-unit"${filtering || A.pk.open.has(uid) ? ' open' : ''} data-unit="${uid}">
+      const on = xs.filter(x => !k.excl.has(x.id)).length;
+      return `<details class="pk-unit"${!big || k.open.has(uid) ? ' open' : ''} data-unit="${uid}">
         <summary><span><b>${u.n}. ${esc(u.short)}</b> <span class="sub">${on} / ${xs.length}</span></span>
-          <button class="chip${on === xs.length ? ' on' : ''}" data-act="pkunit" data-arg="${uid}">${on === xs.length ? '모두 해제' : '모두 선택'}</button></summary>
-        <ul class="pk-list">${xs.map(x => `<li><label><input type="checkbox" data-pk="${esc(x.id)}"${A.pk.sel.has(x.id) ? ' checked' : ''}>
+          <button class="chip${on === xs.length ? ' on' : ''}" data-act="pkunit" data-arg="${uid}">${on === xs.length ? '모두 해제' : '모두 체크'}</button></summary>
+        <ul class="pk-list">${xs.map(x => `<li><label><input type="checkbox" data-pk="${esc(x.id)}"${k.excl.has(x.id) ? '' : ' checked'}>
           <b lang="en">${esc(x.t)}</b><span>${esc(x.ko.join(' · '))}</span><em>${'★'.repeat(x.star)}</em></label></li>`).join('')}</ul>
       </details>`;
     }).join('');
 }
 function viewPick() {
-  const k = A.pk;
-  // 여러 개 고르는 칩: '전체'(아무것도 안 고름) + 각 값 켜고 끄기
-  const multi = (key, items) => `<button class="chip${k[key] ? '' : ' on'}" data-act="pkm" data-arg="${key}:">전체</button>` +
-    items.map(([v, l]) => `<button class="chip${(k[key] || '').includes(v) ? ' on' : ''}" data-act="pkm" data-arg="${key}:${v}">${l}</button>`).join('');
-  const chips = (key, map) => (Array.isArray(map) ? map : Object.entries(map)).map(([v, l]) => `<button class="chip${k[key] === v ? ' on' : ''}" data-act="pkf" data-arg="${key}:${v}">${l}</button>`).join('');
-  const grpSel = `<select class="pk-grp" data-pkgrp><option value="">고르지 않음 (모든 단어)</option>${IX.groups.map((g, i) => g.ids.length ? `<option value="${i}"${k.grp === String(i) ? ' selected' : ''}>${esc(g.t)} (${g.ids.length})</option>` : '').join('')}</select>`;
-  return `<header class="top"><h1>${k.quiz ? '골라서 시험' : k.study ? '골라서 공부' : esc(myName()) + ' 고르기'}</h1><button class="btn small" data-act="pkcancel">취소</button></header>
-  ${k.study ? '<p class="note" style="margin:-4px 2px 10px">단원·중요도·묶음으로 골라서 지금 바로 공부해요. 공부 계획은 바뀌지 않아요.</p>' : ''}
-  <section class="panel pk-filter">
-    <input class="pk-search" type="search" placeholder="영어·한글로 찾기 (예: cardi, 심장)" value="${esc(k.q)}" data-pksearch>
-    <div class="pk-row"><span>종류</span><div class="chips">${chips('kind', PK_KIND)}</div></div>
-    <div class="pk-row"><span>중요도</span><div class="chips">${multi('star', [['3', '★★★'], ['2', '★★'], ['1', '★']])}</div></div>
-    <div class="pk-row"><span>내 답</span><div><div class="chips">${multi('ans', [['1', '모름'], ['2', '헷갈림'], ['3', '알 것 같음'], ['4', '확실히 앎']])}</div><p class="note" style="margin-top:4px">공부할 때 마지막에 누른 답이에요. 여러 개 고를 수 있어요.</p></div></div>
-    <div class="pk-row"><span>상태</span><div class="chips">${chips('status', PK_STATUS)}</div></div>
-    <div class="pk-row"><span>헷갈리는<br>용어 묶음</span><div>${grpSel}<p class="note" style="margin-top:4px">앱이 미리 모아 둔 서로 헷갈리기 쉬운 용어 80묶음이에요 (예: 피가 나오는 곳). 내가 "헷갈림"을 누른 단어는 위의 "내 답"에서 골라요.</p></div></div>
-    <div class="pk-row"><span>계통</span><div class="chips">${chips('unit', [['', '전체'], ...IX.units.map(u => [u.id, u.short])])}</div></div>
+  const k = A.pk, f = k.f, ctx = pkCtx();
+  const { sets } = pkRun();
+  const n = i => sets[i].length;
+  const cnt = (step, patch) => countIf(IX, ctx, f, step, patch);
+  const studiedN = cnt(0, { src: 'studied', ans: '' });
+  const listMode = !k.study && myIds().length;
+  // ① 어디서
+  const src = [['all', '전체 단어', '1,500개 모두에서'], ['studied', '내가 공부한 단어 중에서 선택', '공부할 때 누른 답으로 골라요'], ['new', '아직 안 본 단어만', '새로 배울 단어'], ...(listMode ? [['list', `지금 목록 "${esc(myName())}" 안에서`, '목록에서 뺄 단어를 고를 때']] : [])];
+  const srcOpts = src.map(([v, l, d]) => {
+    const c = cnt(0, { src: v, ans: v === 'studied' ? f.ans : '' }); const dis = v === 'studied' && !studiedN;
+    return `<button class="opt${f.src === v ? ' on' : ''}" data-act="pksrc" data-arg="${v}"${dis ? ' disabled' : ''}><span class="dot"></span><span class="grow"><b>${l} <span class="cnt">${dis ? 0 : c}</span></b><small>${dis ? '공부를 시작하면 쓸 수 있어요' : d}</small></span></button>`;
+  }).join('');
+  const ANS = [['1', '모름'], ['2', '헷갈림'], ['3', '알 것 같음'], ['4', '확실히 앎'], ['w', '틀린 적 있음']];
+  const ansRow = f.src === 'studied' ? `<div class="sub-step"><p class="note">마지막에 누른 답 (여러 개 고르기, 안 고르면 공부한 단어 전부)</p>
+    <div class="chips">${ANS.map(([v, l]) => `<button class="chip${f.ans.includes(v) ? ' on' : ''}" data-act="pkans" data-arg="${v}">${l} <span class="cnt">${cnt(0, { ans: v })}</span></button>`).join('')}</div></div>` : '';
+  const multi = (step, key, items) => items.map(([v, l]) => { const c = cnt(step, { [key]: v }); const on = (f[key] || '').includes(v); return `<button class="chip${on ? ' on' : ''}" data-act="pkmulti" data-arg="${key}:${v}"${c || on ? '' : ' disabled'}>${l} <span class="cnt">${c}</span></button>`; }).join('');
+  const unitChips = IX.units.map(u => { const c = cnt(3, { units: [u.id] }); const on = f.units.includes(u.id); return `<button class="chip${on ? ' on' : ''}" data-act="pkunitf" data-arg="${u.id}"${c || on ? '' : ' disabled'}>${esc(u.short)} <span class="cnt">${c}</span></button>`; }).join('');
+  const grps = groupsIn(IX, sets[4]);
+  const confOpts = [['off', '거르지 않음', n(4)], ['has', '헷갈리는 짝이 있는 단어만', cnt(4, { conf: 'has', mates: false })], ['grp', '묶음 하나 골라 보기', grps.length + '묶음']]
+    .map(([v, l, c]) => `<button class="opt${f.conf === v ? ' on' : ''}" data-act="pkconf" data-arg="${v}"><span class="dot"></span><span class="grow"><b>${l} <span class="cnt">${c}</span></b></span></button>`).join('');
+  const grpSel = f.conf === 'grp' ? `<select class="pk-grp" data-pkgrp><option value="-1">묶음을 고르세요</option>${grps.map(g => `<option value="${g.i}"${f.grp === g.i ? ' selected' : ''}>${esc(g.t)} (${g.n})</option>`).join('')}</select>` : '';
+  const matesN = cnt(4, { mates: true });
+  const step = (no, title, body, hint = '') => `<section class="panel fstep"><div class="row-between"><h2><span class="sn">${no}</span>${title}</h2><span class="left">남은 <b>${n(no)}</b>개</span></div>${hint}${body}</section>`;
+  const title = k.quiz ? '골라서 시험' : k.study ? '골라서 공부' : `"${esc(myName())}" 단어 고르기`;
+  const btns = k.study
+    ? `<div class="pk-two"><button class="btn" data-act="pkaddmy">내 단어에 더하기</button>${k.quiz ? '<button class="btn primary big" data-act="pkquiz">이 단어로 시험</button>' : '<button class="btn primary big" data-act="pkstudy">지금 공부</button>'}</div>`
+    : listMode ? `<div class="pk-two"><button class="btn" data-act="pksave" data-arg="add">목록에 더하기</button><button class="btn primary big" data-act="pksave" data-arg="replace">이걸로 바꾸기</button></div>`
+    : `<button class="btn primary big" data-act="pksave" data-arg="replace">이 단어로 목록 만들기</button>`;
+  return `<header class="top"><h1>${title}</h1><button class="btn small" data-act="pkcancel">취소</button></header>
+  <div class="fbar" aria-label="단계마다 남은 단어">${[0, 1, 2, 3, 4, 5].map(i => `<span><b>${n(i)}</b><small>${i ? STEPS[i - 1].name : '전체'}</small></span>`).join('<i>›</i>')}</div>
+  <p class="note" style="margin:2px 2px 10px">위에서부터 차례로 고르면 단어가 좁혀져요. 안 고른 단계는 건너뛰어요.${listMode ? ` 지금 "${esc(myName())}"에는 ${myIds().length}개가 있어요.` : ''}</p>
+  ${step(1, '어디서 고를까요?', `<div class="opts">${srcOpts}</div>${ansRow}`)}
+  ${step(2, '중요도', `<div class="chips">${multi(1, 'star', [['3', '★★★'], ['2', '★★'], ['1', '★']])}</div>`, '<p class="note">여러 개 고르기 · 안 고르면 전부</p>')}
+  ${step(3, '종류', `<div class="chips">${multi(2, 'kind', [['p', '조각'], ['w', '단어'], ['a', '약어']])}</div>`, '<p class="note">여러 개 고르기 · 안 고르면 전부</p>')}
+  ${step(4, '계통 (단원)', `<div class="chips">${unitChips}</div>`, '<p class="note">여러 개 고르기 · 안 고르면 전부</p>')}
+  ${step(5, '헷갈리는 용어', `<div class="opts">${confOpts}</div>${grpSel}
+    <label class="toggle-row" style="margin-top:8px"><span><b style="font-size:14.5px">헷갈리는 짝도 같이 넣기</b><br><span class="sub">남은 단어와 헷갈리기 쉬운 용어를 함께 넣어 비교하며 외워요 (${matesN}개가 돼요)</span></span><input type="checkbox" data-pkmates${f.mates ? ' checked' : ''}></label>`,
+    '<p class="note">지금 남은 단어 중에서, 앱이 모아 둔 서로 헷갈리기 쉬운 용어(예: 피가 나오는 곳)만 남겨요.</p>')}
+  <section class="panel"><div class="row-between"><h2>결과</h2><span class="left">골라 둔 <b id="pkn">${pkSelected().size}</b>개</span></div>
+    <input class="pk-search" type="search" placeholder="결과 안에서 찾기 (예: cardi, 심장)" value="${esc(k.q || '')}" data-pksearch style="margin-top:8px">
     <details class="pk-paste"><summary>단어 목록 붙여넣기 (교수님 목록 등)</summary>
-      <textarea rows="4" data-pkpaste placeholder="영어 단어를 줄바꿈이나 쉼표로 나눠 붙여 넣으세요"></textarea>
-      <button class="btn small" data-act="pkpaste">찾아서 선택</button>
+      <textarea rows="4" data-pkpaste placeholder="영어나 한글 단어를 줄바꿈이나 쉼표로 나눠 붙여 넣으세요"></textarea>
+      <button class="btn small" data-act="pkpaste">찾아서 넣기</button>
       ${k.pasteMsg ? `<p class="note">${k.pasteMsg}</p>` : ''}
     </details>
   </section>
-  ${k.study ? '' : orderPanel(k)}
   <div id="pklist">${pkListHTML()}</div>
-  ${k.study
-    ? `<div class="bottom-cta pk-save"><p class="pk-count-line" id="pkcount">${pkCountText()}</p>
-        <div class="pk-two"><button class="btn" data-act="pkaddmy">내 단어에 더하기</button>${k.quiz ? '<button class="btn primary big" data-act="pkquiz">이 단어로 시험</button>' : '<button class="btn primary big" data-act="pkstudy">지금 공부</button>'}</div></div>`
-    : `<div class="bottom-cta pk-save"><button class="btn primary big" data-act="pksave"><span id="pkcount">${pkCountText()}</span> · 저장</button></div>`}`;
+  ${k.study ? '' : orderPanel(k)}
+  <div class="bottom-cta pk-save"><p class="pk-count-line" id="pkcount">${pkCountText()}</p>${btns}</div>`;
 }
 // 이 목록의 공부 순서(교재 순서는 '넣은 순서'나 '단원 순서 직접'으로)
 function orderPanel(k) {
@@ -1555,8 +1573,11 @@ function orderPanel(k) {
 function pkRefreshList() {
   const el = document.getElementById('pklist');
   if (el) el.innerHTML = pkListHTML();
-  const c = document.getElementById('pkcount');
-  if (c) c.innerHTML = pkCountText();
+  pkRefreshCount();
+}
+function pkRefreshCount() {
+  const c = document.getElementById('pkcount'); if (c) c.innerHTML = pkCountText();
+  const m = document.getElementById('pkn'); if (m) m.textContent = pkSelected().size;
 }
 Object.assign(ACT, {
   // back = 돌아갈 화면. 'study'면 골라서 바로 공부(빈 선택에서 시작)
@@ -1564,11 +1585,12 @@ Object.assign(ACT, {
     if (back === 'quiz') { ACT.pick('study'); A.pk.quiz = true; A.pk.back = 'qset'; render(); return; }
     const study = back === 'study';
     if (!study && !curL()) newList();
-    A.pk = { order: !study && curL() ? { ...(curL().order || { mode: 'rec' }) } : { mode: 'rec' }, sel: new Set(study ? [] : myIds()), q: '', kind: '', star: '', ans: '', status: '', unit: '', grp: '', open: new Set(), back: study ? 'home' : back || A.view, study };
+    A.pk = { f: PK_BASE(), excl: new Set(), extra: new Set(), q: '', open: new Set(), study,
+      order: !study && curL() ? { ...(curL().order || { mode: 'rec' }) } : { mode: 'rec' }, back: study ? 'home' : back || A.view };
     go('pickw');
   },
   pkstudy: () => {
-    const ids = [...A.pk.sel];
+    const ids = [...pkSelected()];
     if (!ids.length) { toast('공부할 단어를 골라 주세요'); return; }
     // 단어에 필요한 조각 중 아직 안 배운 것도 함께, 조각 → 단어 순서로
     const set = new Set(ids);
@@ -1583,7 +1605,7 @@ Object.assign(ACT, {
     startSession({ day: dayKey(Date.now()), reviews, fresh }, 'pick', `골라서 공부 · ${all.length}개`);
   },
   pkquiz: () => {
-    const ids = [...A.pk.sel];
+    const ids = [...pkSelected()];
     if (ids.length < 3) { toast('3개 이상 골라 주세요'); return; }
     A.qcfg = { ...(A.qcfg || QDEFAULT()), ranges: ['ids'], ids, idsLabel: `직접 고른 ${ids.length}개` }; delete A.qcfg.range;
     A.pk = null; go('qset');
@@ -1591,23 +1613,22 @@ Object.assign(ACT, {
   pkaddmy: async () => {
     if (!curL()) newList();
     const set = new Set(myIds()); const before = set.size;
-    for (const id of A.pk.sel) set.add(id);
+    for (const id of pkSelected()) set.add(id);
     setMyIds([...set]);
     await saveSettings();
     toast(`"${myName()}"에 ${set.size - before}개를 더했어요 (모두 ${set.size}개)`);
   },
-  pkf: arg => { const [key, v] = arg.split(':'); A.pk[key] = v; render(); },
-  pkm: arg => {
-    const [key, v] = arg.split(':');
-    if (!v) A.pk[key] = '';
-    else { const cur = new Set((A.pk[key] || '').split('').filter(Boolean)); if (cur.has(v)) cur.delete(v); else cur.add(v); A.pk[key] = [...cur].sort().reverse().join(''); }
-    render();
-  },
-  pkall: on => { for (const x of pkFiltered()) { if (on === '1') A.pk.sel.add(x.id); else A.pk.sel.delete(x.id); } pkRefreshList(); },
+  // 단계 고르기: 바꾸면 결과 체크는 처음부터(모두 체크)
+  pksrc: v => { const f = A.pk.f; f.src = v; if (v !== 'studied') f.ans = ''; A.pk.excl.clear(); render(); },
+  pkans: v => { const f = A.pk.f; f.ans = f.ans.includes(v) ? f.ans.replace(v, '') : f.ans + v; A.pk.excl.clear(); render(); },
+  pkmulti: arg => { const [key, v] = arg.split(':'); const f = A.pk.f; f[key] = (f[key] || '').includes(v) ? f[key].replace(v, '') : (f[key] || '') + v; A.pk.excl.clear(); render(); },
+  pkunitf: id => { const f = A.pk.f; f.units = f.units.includes(id) ? f.units.filter(z => z !== id) : [...f.units, id]; A.pk.excl.clear(); render(); },
+  pkconf: v => { const f = A.pk.f; f.conf = v; if (v !== 'grp') f.grp = -1; A.pk.excl.clear(); render(); },
+  pkall: on => { for (const x of pkVisible()) { if (on === '1') A.pk.excl.delete(x.id); else A.pk.excl.add(x.id); } pkRefreshList(); },
   pkunit: uid => {
-    const xs = pkFiltered().filter(x => x.unit === uid);
-    const all = xs.every(x => A.pk.sel.has(x.id));
-    for (const x of xs) { if (all) A.pk.sel.delete(x.id); else A.pk.sel.add(x.id); }
+    const xs = pkVisible().filter(x => x.unit === uid);
+    const all = xs.every(x => !A.pk.excl.has(x.id));
+    for (const x of xs) { if (all) A.pk.excl.add(x.id); else A.pk.excl.delete(x.id); }
     pkRefreshList();
   },
   pkpaste: () => {
@@ -1619,18 +1640,21 @@ Object.assign(ACT, {
     let found = 0;
     for (const w of words) {
       const x = byT.get(normEn(w)) || byKo.get(normKo(w));
-      if (x) { A.pk.sel.add(x.id); found++; } else miss.push(w);
+      if (x) { A.pk.extra.add(x.id); A.pk.excl.delete(x.id); found++; } else miss.push(w);
     }
-    A.pk.pasteMsg = `${found}개를 찾아서 골랐어요.${miss.length ? ` 앱에 없는 단어 ${miss.length}개: ${esc(miss.slice(0, 10).join(', '))}${miss.length > 10 ? ' …' : ''}` : ''}`;
+    A.pk.pasteMsg = `${found}개를 찾아서 결과에 넣었어요.${miss.length ? ` 앱에 없는 단어 ${miss.length}개: ${esc(miss.slice(0, 10).join(', '))}${miss.length > 10 ? ' …' : ''}` : ''}`;
     render();
   },
   pkcancel: () => { if (A.first && A.pk.back === 'pace' && !myIds().length) { go('way'); return; } go(A.pk.back || 'home'); },
   pkord: m => { A.pk.order = { ...A.pk.order, mode: m }; if (m === 'units' && !A.pk.order.units) A.pk.order.units = IX.units.map(u => u.id); render(); },
   pkup: i => { const u = A.pk.order.units; i = Number(i); if (i > 0) [u[i - 1], u[i]] = [u[i], u[i - 1]]; render(); },
   pkdown: i => { const u = A.pk.order.units; i = Number(i); if (i < u.length - 1) [u[i + 1], u[i]] = [u[i], u[i + 1]]; render(); },
-  pksave: async () => {
+  pksave: async how => {
+    const pick = [...pkSelected()];
+    if (!pick.length && how !== 'replace') { toast('고른 단어가 없어요'); return; }
     if (curL()) curL().order = A.pk.order;
-    setMyIds([...A.pk.sel]);
+    if (how === 'add') { const set = new Set(myIds()); for (const id of pick) set.add(id); setMyIds([...set]); }
+    else setMyIds(pick);
     await saveSettings();
     if (A.pk.back === 'pace' && A.draft) A.draft.scope = myIds().length ? 'my' : A.draft.scope;
     if (A.qcfg && A.pk.back === 'qset') { const rs = qRanges(A.qcfg); A.qcfg.ranges = rs.includes('my') ? rs : [...rs, 'my']; delete A.qcfg.range; }
@@ -1644,11 +1668,12 @@ document.addEventListener('input', e => {
 });
 document.addEventListener('change', e => {
   if (e.target.matches('input[data-qhardall]') && A.qcfg) { A.qcfg.hardAll = e.target.checked; render(); }
-  if (e.target.matches('select[data-pkgrp]') && A.pk) { A.pk.grp = e.target.value; render(); }
+  if (e.target.matches('select[data-pkgrp]') && A.pk) { A.pk.f.grp = Number(e.target.value); A.pk.excl.clear(); render(); }
+  if (e.target.matches('input[data-pkmates]') && A.pk) { A.pk.f.mates = e.target.checked; A.pk.excl.clear(); render(); }
 });
 document.addEventListener('change', e => {
   const id = e.target.dataset && e.target.dataset.pk;
-  if (id && A.pk) { if (e.target.checked) A.pk.sel.add(id); else A.pk.sel.delete(id); const c = document.getElementById('pkcount'); if (c) c.innerHTML = pkCountText(); }
+  if (id && A.pk) { if (e.target.checked) A.pk.excl.delete(id); else A.pk.excl.add(id); pkRefreshCount(); }
 });
 document.addEventListener('toggle', e => {
   if (e.target.matches && e.target.matches('details[data-scopemore]') && A.draft) A.draft.scopeOpen = e.target.open;

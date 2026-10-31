@@ -395,6 +395,23 @@ details.order-line > summary { list-style: none; cursor: pointer; }
 .plansw-new { display: flex; flex-wrap: wrap; gap: 6px; padding: 6px 4px 2px; }
 .plansw-new .chip { border-style: dashed; }
 
+.fbar { position: sticky; top: 0; z-index: 10; display: flex; align-items: center; justify-content: space-between; gap: 2px; padding: 8px 10px; margin: 0 -4px 6px; background: color-mix(in srgb, var(--bg) 92%, transparent); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); border-radius: 14px; border: 1px solid var(--line); }
+.fbar span { display: grid; text-align: center; line-height: 1.15; }
+.fbar b { font-size: 15px; color: var(--deep); }
+.fbar small { font-size: 10.5px; color: var(--sub); }
+.fbar i { font-style: normal; color: var(--sub); }
+.fstep h2 { display: flex; align-items: center; gap: 8px; }
+.fstep .sn { width: 24px; height: 24px; border-radius: 50%; background: var(--pri); color: var(--pri-ink); font-size: 13px; display: inline-flex; align-items: center; justify-content: center; }
+.fstep .left, .panel .left { font-size: 13px; color: var(--sub); }
+.fstep .left b, .panel .left b { color: var(--deep); font-size: 16px; }
+.fstep .chips { margin-top: 8px; }
+.cnt { font-weight: 600; font-size: 12px; opacity: .8; margin-left: 2px; }
+.chip:disabled { opacity: .35; cursor: default; }
+.opt:disabled { opacity: .5; cursor: default; }
+.sub-step { margin-top: 10px; padding: 10px 12px; border-radius: 12px; background: var(--tint); }
+.sub-step .chip { background: var(--card); }
+.sub-step .chip.on { background: var(--pri); }
+
 /* 준비 끝 */
 .readycard { background: var(--pri); color: var(--pri-ink); border-radius: calc(var(--r-card) + 4px); padding: 22px; display: grid; gap: 12px; margin-bottom: 12px; }
 .readycard .big { font-family: var(--display); font-weight: var(--display-w); font-size: 38px; line-height: 1.1; letter-spacing: -0.03em; }
