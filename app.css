@@ -698,3 +698,16 @@ body.drop .dropzone { display: flex; position: fixed; inset: 12px; border: 3px d
   .checks .btn { min-height: 64px; }
   body:has(#app[data-view="study"]) #toast { bottom: 120px; }
 }
+
+/* 단어장 지우기 · 되돌리기 알림 */
+.plan-manage { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 24px; }
+.plan-manage .btn { flex: 1 1 auto; }
+.btn.danger-t { color: #b3261e; }
+.chip.del { padding: 6px 9px; color: var(--sub); display: inline-flex; align-items: center; }
+.chip.del:hover { color: #b3261e; }
+#toast.act { display: flex; align-items: center; gap: 12px; pointer-events: auto; }
+.toast-btn { white-space: nowrap; flex: none; background: none; border: 0; color: inherit; font: inherit; font-weight: 700; text-decoration: underline; padding: 4px 2px; cursor: pointer; }
+@media (prefers-color-scheme: dark) { .btn.danger-t, .chip.del:hover { color: #ff8a7a; } }
+/* 알림은 아래 메뉴 위에 뜬다 (메뉴에 가려지지 않게) */
+#toast { z-index: 40; }
+body:has(.bnav) #toast { bottom: calc(84px + var(--safe-b)); }

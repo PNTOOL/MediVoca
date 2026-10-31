@@ -21,8 +21,9 @@ const slim = e => {
   return o;
 };
 
-export function makeBackup(log, { device, label, now = Date.now(), notes, flags, history } = {}) {
+export function makeBackup(log, { device, label, now = Date.now(), notes, flags, history, plans } = {}) {
   const o = { app: APP, v: VERSION, ts: now, device, label, log: log.map(slim) };
+  if (plans) o.plans = plans;
   if (notes && Object.keys(notes).length) o.notes = notes;
   if (flags && Object.keys(flags).length) o.flags = flags;
   if (history && history.length) o.history = history;
@@ -80,4 +81,49 @@ export function mergeFlags(mine = {}, theirs = {}) {
     if (!out[id] || out[id].t < v.t) { out[id] = { on: v.on, t: v.t }; changed++; }
   }
   return { flags: out, changed };
+}
+
+// ───────── 단어장(공부 계획) 옮기기 ─────────
+// 단어장은 설정 안에 있다. 폰 ↔ 컴퓨터로 옮길 때 단어장마다 "마지막으로 고친 시각"(stamp)을 비교해 더 나중 것을 쓴다.
+// 지운 단어장은 del { id: 지운 시각 }로 남겨서, 다른 기기에서 불러와도 다시 살아나지 않게 한다.
+// 키: 'rec'(추천: scope·pace) · 'syl'(학교 수업) · 'L:목록id'(내 단어장)
+const okList = l => l && typeof l === 'object' && typeof l.id === 'string' && l.id.length < 60 && typeof l.name === 'string' && Array.isArray(l.ids);
+export function plansOf(s = {}) {
+  return {
+    lists: (s.lists || []).filter(okList),
+    syl: s.syl || null,
+    rec: { scope: s.scope, pace: s.pace },
+    focus: s.focus || {},
+    stamp: s.stamp || {},
+    del: s.delLists || {},
+  };
+}
+// settings(내 것) + 백업의 plans → 바꿀 설정 조각과 바뀐 수
+export function mergePlans(s = {}, p) {
+  if (!p || typeof p !== 'object') return { patch: null, changed: 0 };
+  const st = { ...(s.stamp || {}) }, del = { ...(s.delLists || {}) };
+  const ts = p.stamp || {}, tdel = p.del || {};
+  let changed = 0;
+  for (const [id, t] of Object.entries(tdel)) if (Number.isFinite(t) && !(del[id] >= t)) del[id] = t;
+  const newer = k => (ts[k] || 0) > (st[k] || 0);
+  const lists = [];
+  const mine = new Map((s.lists || []).map(l => [l.id, l]));
+  const theirs = new Map((p.lists || []).filter(okList).map(l => [l.id, l]));
+  const ids = [...new Set([...mine.keys(), ...theirs.keys()])];
+  for (const id of ids) {
+    const k = 'L:' + id, a = mine.get(id), b = theirs.get(id);
+    let pick = a && b ? (newer(k) ? b : a) : (a || b);
+    const t = pick === b && b !== a ? (ts[k] || 0) : (st[k] || 0);
+    if (del[id] && del[id] >= t) { if (a) changed++; continue; } // 지운 뒤에 고친 게 아니면 지운 쪽
+    if (pick !== a) { changed++; st[k] = ts[k] || 0; }
+    lists.push(pick);
+  }
+  const patch = { lists, delLists: del, stamp: st };
+  if (p.syl && (newer('syl') || (!s.syl && !st.syl))) { patch.syl = p.syl; st.syl = ts.syl || 0; changed++; }
+  else if (!p.syl && s.syl && newer('syl')) { patch.syl = null; st.syl = ts.syl; changed++; } // 다른 기기에서 지움
+  if (p.rec && p.rec.scope && newer('rec')) { patch.scope = p.rec.scope; patch.pace = p.rec.pace; st.rec = ts.rec; changed++; }
+  const focus = { ...(s.focus || {}) };
+  for (const [k, v] of Object.entries(p.focus || {})) if (v && typeof v === 'object' && (!focus[k] || newer(k))) focus[k] = v;
+  patch.focus = focus;
+  return { patch, changed };
 }

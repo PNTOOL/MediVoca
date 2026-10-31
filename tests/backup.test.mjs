@@ -55,3 +55,39 @@ test('중요 표시 합치기: 나중에 바꾼 쪽', () => {
   assert.deepEqual(r.flags, { 'w:a': { on: true, t: 5 }, 'w:b': { on: false, t: 9 }, 'w:c': { on: true, t: 2 } });
   assert.equal(r.changed, 2);
 });
+
+import { plansOf, mergePlans } from '../src/backup.js';
+test('단어장 옮기기: 없는 단어장은 더하고, 같은 단어장은 나중에 고친 쪽', () => {
+  const phone = { lists: [{ id: 'a', name: 'A폰', ids: ['x'] }, { id: 'b', name: 'B', ids: [] }], stamp: { 'L:a': 200, 'L:b': 100 } };
+  const pc = { lists: [{ id: 'a', name: 'A컴', ids: [] }], stamp: { 'L:a': 100 } };
+  const { patch, changed } = mergePlans(pc, plansOf(phone));
+  assert.equal(changed, 2);
+  assert.deepEqual(patch.lists.map(l => l.name), ['A폰', 'B']);
+  // 컴퓨터 쪽이 더 나중이면 그대로
+  const r2 = mergePlans({ ...pc, stamp: { 'L:a': 300 } }, plansOf(phone));
+  assert.equal(r2.patch.lists.find(l => l.id === 'a').name, 'A컴');
+});
+test('단어장 옮기기: 지운 단어장은 다른 기기에서 불러와도 살아나지 않는다', () => {
+  const pc = { lists: [], delLists: { a: 500 } };
+  const phone = { lists: [{ id: 'a', name: 'A', ids: [] }], stamp: { 'L:a': 200 } };
+  assert.equal(mergePlans(pc, plansOf(phone)).patch.lists.length, 0);
+  // 반대로 폰에서 지운 걸 컴퓨터가 받으면 컴퓨터에서도 지워진다
+  const r = mergePlans(phone, plansOf(pc));
+  assert.equal(r.patch.lists.length, 0);
+  assert.equal(r.changed, 1);
+  // 지운 뒤에 다시 고쳤으면 남긴다
+  assert.equal(mergePlans({ lists: [{ id: 'a', name: 'A', ids: [] }], stamp: { 'L:a': 900 } }, plansOf(pc)).patch.lists.length, 1);
+});
+test('학교 수업·추천 기간도 나중에 고친 쪽', () => {
+  const a = { scope: '321', pace: { mode: 'goal', weeks: 16 }, stamp: { rec: 100 } };
+  const b = { scope: '32', pace: { mode: 'goal', weeks: 8 }, syl: { scope: 'syl:32|m01', pace: {} }, stamp: { rec: 200, syl: 50 } };
+  const { patch } = mergePlans(a, plansOf(b));
+  assert.equal(patch.scope, '32');
+  assert.equal(patch.syl.scope, 'syl:32|m01');
+});
+test('학교 수업 단어장을 지우면 다른 기기의 옛 것으로 살아나지 않는다', () => {
+  const del = { syl: null, stamp: { syl: 500 } };
+  const old = { syl: { scope: 'syl:32|m01', pace: {} }, stamp: { syl: 100 } };
+  assert.equal(mergePlans(del, plansOf(old)).patch.syl, undefined);
+  assert.equal(mergePlans(old, plansOf(del)).patch.syl, null);
+});

@@ -11,7 +11,7 @@ import { THEMES, LOOKS, themeOf, applyLook } from './themes.js';
 import { QTYPES, buildQuiz, grade, summarize, spellHard } from './quiz.js';
 import { runFunnel, countIf, groupsIn, STEPS } from './funnel.js';
 import { dayStats, weekSummary, masteredSeries, mergeHistory } from './history.js';
-import { makeBackup, backupName, parseBackup, mergeLogs, mergeNotes, mergeFlags } from './backup.js';
+import { makeBackup, backupName, parseBackup, mergeLogs, mergeNotes, mergeFlags, plansOf, mergePlans } from './backup.js';
 import { esc, rich, speakable, normEn, normKo, gradeSpell } from './text.js';
 import * as store from './store.js';
 
@@ -83,6 +83,7 @@ async function boot() {
   }
   delete A.settings.myList; delete A.settings.myPace;
   IX.myList = myIds();
+  SIG = planSigs();
   recompute();
   if (!A.settings.seenGuide && !A.log.length) { A.first = true; A.view = 'welcome'; }
   render();
@@ -147,7 +148,20 @@ const plan = (extra = A.extraNew + todayAdj()) => {
   }
   return p;
 };
-const saveSettings = () => store.set('settings', A.settings);
+// 단어장마다 마지막으로 고친 시각을 적는다 (다른 기기와 합칠 때 더 나중 것을 쓰려고). backup.js mergePlans
+function planSigs() {
+  const s = A.settings, f = s.focus || {};
+  const o = { rec: JSON.stringify([s.scope, s.pace, f.rec]), syl: JSON.stringify([s.syl || null, f.syl]) };
+  for (const l of s.lists || []) o['L:' + l.id] = JSON.stringify([l, f['L:' + l.id]]);
+  return o;
+}
+let SIG = null;
+const saveSettings = () => {
+  const now = Date.now(), cur = planSigs();
+  if (SIG) { const st = A.settings.stamp || (A.settings.stamp = {}); for (const k of Object.keys(cur)) if (cur[k] !== SIG[k]) st[k] = now; }
+  SIG = cur;
+  return store.set('settings', A.settings);
+};
 
 // ───────── 그리기 ─────────
 function render() {
@@ -171,6 +185,7 @@ const koMain = x => (x.ko || []).join(' · ');
 // ───────── 아이콘 (선 아이콘, 글자색을 따른다) ─────────
 const svg = (d, s = 22) => `<svg aria-hidden="true" width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
 const IC = {
+  trash: svg('<path d="M4 7h16"></path><path d="M10 11v6M14 11v6"></path><path d="M6 7l1 13h10l1-13"></path><path d="M9 7V4h6v3"></path>', 16),
   search: svg('<circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path>', 18),
   gear: svg('<circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"></path>'),
   n_home: svg('<path d="M3 11l9-7 9 7"></path><path d="M5 10v10h14V10"></path>'),
@@ -448,7 +463,7 @@ function bottomNav() {
 }
 function viewSettingsPage() {
   return `<header class="top"><h1>설정</h1><button class="btn small" data-act="home">닫기</button></header>${viewSettings()}${viewBackup()}
-  <section class="panel"><h2>처음부터 다시 정하기</h2><p class="note">처음 시작 화면으로 돌아가서 공부 방법과 기간을 다시 골라요. 공부 기록·내 단어 목록·아주 중요 표시는 그대로 남아요.</p>
+  <section class="panel"><h2>처음부터 다시 정하기</h2><p class="note">처음 시작 화면으로 돌아가서 공부 방법과 기간을 다시 골라요. 공부 기록·내 단어장·★ 중요 표시는 그대로 남아요.</p>
     <button class="btn" style="width:100%;margin-top:10px" data-act="restart">처음 화면으로 돌아가기</button></section>
 `;
 }
@@ -529,6 +544,9 @@ function viewPlan() {
   <section class="hero">${hero}</section>
   ${courseCard(pr, pct, track)}
   ${groupPanel()}
+  ${def.key === 'rec' ? '' : `<section class="plan-manage">
+    ${def.list ? `<button class="btn" data-act="ledit" data-arg="${esc(def.list.id)}">단어 고치기</button><button class="btn" data-act="plnren" data-arg="${esc(def.key)}">이름 바꾸기</button>` : ''}
+    <button class="btn danger-t" data-act="plandel" data-arg="${esc(def.key)}">단어장 지우기</button></section>`}
 `;
 }
 
@@ -1217,6 +1235,30 @@ function sayEn(t) {
   } catch (e) { /* 발음은 없어도 공부할 수 있다 */ }
 }
 
+// 단어장 지우기: 단어장(목록·순서·기간·하던 곳)만 지우고 공부 기록·외운 단어는 남긴다. 몇 초 동안 되돌릴 수 있다.
+async function deletePlan(key) {
+  const def = planDefs().find(z => z.key === key);
+  if (!def || key === 'rec') return;
+  if (!confirm(`"${def.name}"을(를) 지울까요?\n단어장만 지워지고, 공부 기록과 외운 단어는 그대로 남아요.`)) return;
+  const s = A.settings, now = Date.now(), wasCur = trackKey() === key;
+  A.undoDel = { key, lists: (s.lists || []).slice(), syl: s.syl, track: s.track, curList: s.curList, del: { ...(s.delLists || {}) }, focus: (s.focus || {})[key], sess: A.sess && A.sess.key === key ? A.sess : A.sessions[key] };
+  if (A.sess && A.sess.key === key) A.sess = null;
+  delete A.sessions[key];
+  if (s.focus) delete s.focus[key];
+  if (key === 'syl') s.syl = null;
+  else {
+    const id = key.slice(2);
+    s.lists = (s.lists || []).filter(l => l.id !== id);
+    (s.delLists || (s.delLists = {}))[id] = now;
+    if (s.curList === id) s.curList = s.lists[0] ? s.lists[0].id : '';
+  }
+  if (wasCur || (s.track === 'my' && !s.lists.length) || (s.track === 'syl' && !s.syl)) s.track = 'rec';
+  syncMy(); await saveSettings(); await switchSess(); recompute();
+  if (A.view === 'plan') A.view = 'home';
+  render();
+  toast(`"${def.name}"을(를) 지웠어요`, 6000, ['되돌리기', 'undodel']);
+}
+
 const ACT = {
   start: () => startSession(plan(), 'daily'),
   more: () => { A.extraNew += RULES.batch; startSession(plan(), 'daily'); },
@@ -1348,13 +1390,21 @@ const ACT = {
     if (!name) return;
     l.name = name.slice(0, 20); await saveSettings(); render();
   },
-  ldel: async () => {
-    const l = curL(); if (!l) return;
-    if (!confirm(`"${l.name}" 단어장을 지울까요? 공부 기록은 그대로 남아요.`)) return;
-    A.settings.lists = A.settings.lists.filter(z => z.id !== l.id);
-    A.settings.curList = A.settings.lists[0] ? A.settings.lists[0].id : '';
-    if (!A.settings.lists.length && A.settings.track === 'my') A.settings.track = 'rec';
-    syncMy(); await saveSettings(); render(); toast('단어장을 지웠어요');
+  ldel: () => { const l = curL(); if (l) deletePlan('L:' + l.id); },
+  plandel: key => deletePlan(key || trackKey()),
+  undodel: async () => {
+    const u = A.undoDel; if (!u) return; A.undoDel = null;
+    const s = A.settings;
+    s.lists = u.lists; s.syl = u.syl; s.track = u.track; s.curList = u.curList; s.delLists = u.del;
+    if (u.focus) (s.focus || (s.focus = {}))[u.key] = u.focus;
+    if (u.sess) A.sessions[u.key] = u.sess;
+    syncMy(); await saveSettings(); await switchSess(); recompute(); render(); toast('되돌렸어요');
+  },
+  plnren: async key => {
+    const l = (A.settings.lists || []).find(z => 'L:' + z.id === key); if (!l) return;
+    const name = (prompt('단어장 이름', l.name) || '').trim();
+    if (!name) return;
+    l.name = name.slice(0, 20); await saveSettings(); render();
   },
   track: async t => { if (A.settings.track === t) return; A.settings.track = t; await saveSettings(); await switchSess(); render(); toast(`${planLabel()}로 공부해요${A.sess ? ' · 하던 곳부터' : ''}`); },
   // 홈 "지금 공부 ▾": 계획 고르기 (추천 · 강의 순서 · 내 단어 목록마다)
@@ -2151,7 +2201,7 @@ function viewMarks() {
   const empty = { flag: '단어 카드에서 ☆를 누르면 여기에 모여요.', my: '"내 단어 고르기"에서 단어를 골라 보세요.', qw: '시험에서 틀린 단어가 여기에 모여요.', qu: '시험에서 "헷갈렸어요"를 누른 단어가 여기에 모여요.' }[cur.k] || '아직 없어요.';
   const lists = A.settings.lists || [];
   const listCards = lists.map(l => { const keep = IX.myList; IX.myList = l.ids; const pr = progress(IX, A.states, 'my'); IX.myList = keep; const pct = pr.total ? Math.round(((pr.mastered + pr.long) / pr.total) * 100) : 0;
-    return `<li><span class="ln"><b>${esc(l.name)}</b><small>${l.ids.length}개 · 익힘 ${pct}% · ${orderName(l)}</small></span><button class="chip" data-act="lstudy" data-arg="${l.id}">공부</button><button class="chip" data-act="ledit" data-arg="${l.id}">고치기</button></li>`; }).join('');
+    return `<li><span class="ln"><b>${esc(l.name)}</b><small>${l.ids.length.toLocaleString()}개 · 외움 ${pct}% · ${orderName(l)}</small></span><button class="chip" data-act="lstudy" data-arg="${l.id}">공부</button><button class="chip" data-act="ledit" data-arg="${l.id}">고치기</button><button class="chip del" data-act="plandel" data-arg="L:${l.id}" aria-label="${esc(l.name)} 지우기" title="지우기">${IC.trash || '🗑'}</button></li>`; }).join('');
   return `<header class="top"><h1>단어</h1></header>
   <div class="hsearch"><span class="hs-ic">${IC.search}</span><input type="search" data-hsearch placeholder="단어 찾기 (영어·한글)" value="${esc(A.hq || '')}" autocomplete="off"><div id="hsres">${hsearchHTML()}</div></div>
   <section class="panel"><div class="row-between"><h2>내 단어장</h2><button class="link" data-act="planpick" data-arg="new-my">+ 새 단어장</button></div>
@@ -2216,7 +2266,7 @@ document.addEventListener('change', e => {
 // ───────── 백업 ─────────
 async function sendBackup() {
   const now = Date.now();
-  const data = makeBackup(A.log, { device: A.settings.device, label: A.settings.label, now, notes: A.notes, flags: A.flags, history: A.history });
+  const data = makeBackup(A.log, { device: A.settings.device, label: A.settings.label, now, notes: A.notes, flags: A.flags, history: A.history, plans: plansOf(A.settings) });
   const name = backupName(A.settings.label, now);
   const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
   let file = null;
@@ -2251,12 +2301,20 @@ async function importText(text) {
   if (fm.changed) { A.flags = fm.flags; await store.set('flags', A.flags); }
   const hm = mergeHistory(A.history, o.history);
   if (hm.changed) { A.history = hm.history; await store.set('history', A.history); }
+  // 단어장(내 단어장·학교 수업·추천 기간)도 합친다. 더 나중에 고친 쪽, 지운 단어장은 지운 채로.
+  const pm = mergePlans(A.settings, o.plans);
+  if (pm.patch) {
+    Object.assign(A.settings, pm.patch);
+    if (!A.settings.lists.find(l => l.id === A.settings.curList)) A.settings.curList = A.settings.lists[0] ? A.settings.lists[0].id : '';
+    if (A.settings.track === 'my' && !A.settings.lists.length) A.settings.track = 'rec';
+    if (A.settings.track === 'syl' && !A.settings.syl) A.settings.track = 'rec';
+    syncMy(); SIG = planSigs(); await store.set('settings', A.settings);
+  }
   recompute();
   if (A.view === 'welcome') go('way'); else render();
   const from = o.label ? `(${o.label}에서 보냄) ` : '';
-  toast(added.length || nm.changed
-    ? `${from}기록 ${added.length}줄을 합쳤어요${nm.changed ? ` · 내 암기법 ${nm.changed}개` : ''}`
-    : `${from}새로 합칠 기록이 없어요. 이미 다 있어요.`, 4000);
+  const got = [added.length && `공부 기록 ${added.length.toLocaleString()}개`, pm.changed && `단어장 ${pm.changed}개`, nm.changed && `내 암기법 ${nm.changed}개`].filter(Boolean);
+  toast(got.length ? `${from}${got.join(' · ')}를 맞췄어요` : `${from}이미 같은 내용이에요. 바뀐 게 없어요.`, 4000);
 }
 
 async function importFile(f) {
@@ -2281,10 +2339,13 @@ async function receiveShared() {
 
 // ───────── 알림 ─────────
 let toastTimer = 0;
-function toast(msg, ms = 2500) {
+// act: [버튼 글자, 동작 이름] — 예 ['되돌리기', 'undodel']
+function toast(msg, ms = 2500, act) {
   let el = document.getElementById('toast');
   if (!el) { el = document.createElement('div'); el.id = 'toast'; el.setAttribute('role', 'status'); document.body.appendChild(el); }
   el.textContent = msg;
+  el.classList.toggle('act', !!act);
+  if (act) { const b = document.createElement('button'); b.className = 'toast-btn'; b.dataset.act = act[1]; b.textContent = act[0]; el.appendChild(b); }
   el.classList.add('on');
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => el.classList.remove('on'), ms);
