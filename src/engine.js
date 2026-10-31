@@ -101,7 +101,7 @@ export function retrievability(s, now, retention = 0.9) {
 // 장 순서대로, 장 안에서는 조각 → 단어(같은 어근끼리) → 약어. 핵심(core)을 다 넣은 뒤 확장(ext).
 // 단어에 들어가는 조각은 그 단어보다 먼저 온다(다른 장·확장 조각이라도).
 export function newOrder(index, scope = 'all') {
-  const keep = scope === 'all' ? null : scopeSet(index, scope);
+  const keep = normScope(scope) === '321' ? null : scopeSet(index, scope);
   const out = [];
   const placed = new Set();
   const put = id => { if (!placed.has(id) && index.byId.has(id)) { placed.add(id); out.push(id); } };
@@ -132,17 +132,32 @@ export function newOrder(index, scope = 'all') {
 }
 
 // ───────── 공부 범위 ─────────
-// star3 ★★★만, core 핵심(★★ 이상), all 전체(핵심 다음 확장). 범위 안 단어에 필요한 조각은 함께 넣는다.
+// 범위는 중요도(★) 조합으로 정한다: '321' 전체, '32' ★★ 이상(핵심), '3' ★★★만, '1' ★만 …
+// 예전 이름(star3 · core · all)도 받는다. 범위 안 단어에 필요한 조각은 별이 낮아도 함께 넣는다.
+const OLD_SCOPES = { star3: '3', core: '32', all: '321' };
+export function scopeStars(scope = 'all') {
+  const d = OLD_SCOPES[scope] || String(scope);
+  const set = new Set([...d].map(Number).filter(n => n >= 1 && n <= 3));
+  return set.size ? set : new Set([1, 2, 3]);
+}
+export const normScope = scope => [...scopeStars(scope)].sort((a, b) => b - a).join('');
+export function scopeLabel(scope) {
+  const d = normScope(scope);
+  if (d === '321') return '전체';
+  if (d === '32') return '핵심 (★★ 이상)';
+  if (d === '3') return '★★★만';
+  return [...d].map(n => '★'.repeat(Number(n))).join(' · ');
+}
 export const SCOPES = {
   star3: { label: '★★★만', test: x => x.star === 3 },
-  core: { label: '핵심 (★★ 이상)', test: x => x.stage === 'core' },
+  core: { label: '핵심 (★★ 이상)', test: x => x.star >= 2 },
   all: { label: '전체', test: () => true },
 };
 export function scopeSet(index, scope = 'all') {
-  const t = (SCOPES[scope] || SCOPES.all).test;
+  const stars = scopeStars(scope);
   const set = new Set();
   for (const x of index.items) {
-    if (!t(x)) continue;
+    if (!stars.has(x.star)) continue;
     set.add(x.id);
     if (x.k === 'word') for (const f of x.parts || []) if (index.byId.has('p:' + f)) set.add('p:' + f);
   }
@@ -374,5 +389,56 @@ export function daySummary(index, log, states, { now = Date.now(), retention = 0
     mastered,
     tomorrow,
     sticky,
+  };
+}
+
+// ───────── 현황 ─────────
+// 얼마나 공부했는지(상태별·★별·장별), 얼마나 기억하는지(실제 기억률, 지금 기억 예상), 앞으로 7일 복습
+export function overview(index, log, states, { now = Date.now(), retention = 0.9, days = 30 } = {}) {
+  const f = makeScheduler(retention);
+  const blank = () => ({ new: 0, learning: 0, mastered: 0, long: 0, total: 0 });
+  const all = blank();
+  const byStar = { 3: blank(), 2: blank(), 1: blank() };
+  const byUnit = new Map(index.units.map(u => [u.id, { unit: u, ...blank() }]));
+  let rSum = 0, rN = 0;
+  for (const x of index.items) {
+    const s = states.get(x.id);
+    const st = statusOf(s);
+    for (const g of [all, byStar[x.star], byUnit.get(x.unit)]) { if (!g) continue; g[st]++; g.total++; }
+    if (s) { rSum += f.get_retrievability(s.card, new Date(now), false); rN++; }
+  }
+  // 실제 기억률: 최근 days일 동안 "복습"(처음 본 날이 아닌 날의 그날 첫 답)에서 맞힌 비율
+  const since = now - days * DAY;
+  const firstOfDay = new Map();
+  for (const e of [...log].sort((a, b) => a.t - b.t)) {
+    const k = e.c + '|' + dayKey(e.t);
+    if (!firstOfDay.has(k)) firstOfDay.set(k, e);
+  }
+  let rev = 0, revOk = 0;
+  for (const e of firstOfDay.values()) {
+    const s = states.get(e.c);
+    if (e.t < since || !s || s.firstDay === dayKey(e.t)) continue;
+    rev++;
+    if (isCorrect(e)) revOk++;
+  }
+  // 앞으로 7일 복습 예상 (오늘 포함, 오늘 것은 아직 안 본 것만)
+  const today = dayKey(now);
+  const end0 = dayEnd(now);
+  const ahead = Array.from({ length: 7 }, (_, i) => ({ day: dayKey(end0 + (i - 1) * DAY + HOUR), n: 0 }));
+  for (const s of states.values()) {
+    const due = s.card.due.getTime();
+    if (due < end0) { if (s.lastDay !== today) ahead[0].n++; continue; }
+    const i = Math.floor((due - end0) / DAY) + 1;
+    if (i < 7) ahead[i].n++;
+  }
+  const studyDays = new Set(log.map(e => dayKey(e.t))).size;
+  const sticky = [...states.values()].filter(isSticky).sort((a, b) => b.fails - a.fails).map(s => s.id);
+  return {
+    all, byStar, byUnit: [...byUnit.values()],
+    started: rN,
+    recall: rN ? rSum / rN : null,            // 지금 기억하고 있을 확률(공부한 단어 평균)
+    actual: rev ? revOk / rev : null,          // 최근 실제 기억률
+    reviews: rev,
+    ahead, studyDays, total: log.length, sticky,
   };
 }

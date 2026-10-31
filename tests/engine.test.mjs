@@ -263,3 +263,35 @@ test('오늘 이미 넣은 새 단어를 빼도 하루 목표 수는 그대로�
   assert.equal(p2.goal.perDay, p.goal.perDay);
   assert.equal(p2.fresh.length, p.fresh.length - 5);
 });
+
+// ───────── 중요도 범위와 현황 ─────────
+import { scopeStars, scopeLabel, normScope, overview } from '../src/engine.js';
+
+test('범위는 ★ 조합으로 고른다', () => {
+  assert.deepEqual([...scopeStars('star3')], [3]);
+  assert.equal(normScope('core'), '32');
+  assert.equal(normScope('13'), '31');
+  assert.equal(scopeLabel('321'), '전체');
+  assert.equal(scopeLabel('31'), '★★★ · ★');
+  const only1 = scopeSet(IX, '1');
+  for (const id of only1) { const x = IX.get(id); assert.ok(x.star === 1 || x.k === 'part', id); }
+  assert.equal(scopeSet(IX, '32').size, scopeSet(IX, 'core').size);
+  const p = planToday(IX, new Map(), { now: T0, scope: '1' });
+  for (const id of p.fresh) assert.ok(only1.has(id));
+});
+
+test('현황: 상태별·★별·장별 수, 실제 기억률, 앞으로 7일 복습', () => {
+  const log = [ev(T0, 'w:dyspnea', 1), ev(T0 + DAY, 'w:dyspnea', 3, true), ev(T0 + DAY, 'w:apnea', 3, true), ev(T0 + 2 * DAY, 'w:apnea', 1)];
+  const st = replay(log);
+  const o = overview(IX, log, st, { now: T0 + 2 * DAY + 1000 });
+  assert.equal(o.all.total, IX.items.length);
+  assert.equal(o.all.learning, 2);
+  assert.equal(o.byStar[3].total + o.byStar[2].total + o.byStar[1].total, IX.items.length);
+  assert.equal(o.byUnit.length, IX.units.length);
+  // 복습은 dyspnea 2일째(맞음), apnea 3일째(틀림) → 50%
+  assert.equal(o.reviews, 2);
+  assert.equal(o.actual, 0.5);
+  assert.ok(o.recall > 0 && o.recall <= 1);
+  assert.equal(o.ahead.length, 7);
+  assert.equal(o.studyDays, 3);
+});

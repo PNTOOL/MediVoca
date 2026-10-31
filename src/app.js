@@ -3,7 +3,7 @@ import { UNITS, PAIRS } from '../data/index.js';
 import { buildIndex } from './data.js';
 import {
   RULES, replay, planToday, newOrder, newSession, current, answer, isDone,
-  progress, streak, daySummary, dayKey, SCOPES, PACES, paceInfo, scopeSet,
+  progress, streak, daySummary, dayKey, PACES, paceInfo, scopeSet, scopeLabel, normScope, overview,
   minutesForCards, daysBetween,
 } from './engine.js';
 import { guideHTML } from './guide.js';
@@ -79,7 +79,7 @@ const saveSettings = () => store.set('settings', A.settings);
 
 // ───────── 그리기 ─────────
 function render() {
-  const V = { study: viewStudy, end: viewEnd, guide: () => guideHTML(false), pace: viewPace, welcome: viewWelcome, look: viewLook, ready: viewReady };
+  const V = { study: viewStudy, end: viewEnd, guide: () => guideHTML(false), pace: viewPace, welcome: viewWelcome, look: viewLook, ready: viewReady, stats: viewStats };
   const v = (V[A.view] || viewHome)();
   $app.innerHTML = v;
   $app.dataset.view = A.view;
@@ -170,7 +170,7 @@ function viewReady() {
   <h1 class="hero-title" style="font-size:26px;margin-bottom:14px">준비됐어요</h1>
   <section class="readycard">
     <div class="big">매일 약 ${info.minutes}분</div>
-    <p>${fmtDate(end, { year: 'numeric', month: 'long', day: 'numeric' })}까지 ${SCOPES[S.scope].label} ${info.total}개를 모두 넣어요</p>
+    <p>${fmtDate(end, { year: 'numeric', month: 'long', day: 'numeric' })}까지 ${scopeLabel(S.scope)} ${info.total}개를 모두 넣어요</p>
     <div class="rows">
       <div><span>오늘</span><span>새 단어 ${p.fresh.length}개 · 약 ${p.minutes}분</span></div>
       <div><span>순서</span><span>조각(접두사·접미사)부터, 장별로</span></div>
@@ -244,10 +244,10 @@ function viewHome() {
   <section class="hero">${hero}</section>
   <section class="panel">
     <div class="plan-row">
-      <div class="ring" style="background:conic-gradient(var(--pri) 0 ${pct}%, var(--tint) ${pct}% 100%)" aria-hidden="true"><span>${pct}%</span></div>
+      <button class="ring" data-act="stats" aria-label="현황 보기" style="background:conic-gradient(var(--pri) 0 ${pct}%, var(--tint) ${pct}% 100%)"><span>${pct}%</span></button>
       <div class="txt">
         <div class="row-between"><b>공부 계획</b><button class="link" data-act="pace">바꾸기</button></div>
-        <span>${SCOPES[S.scope].label} ${pr.total}개 중 <b>${done}개 익힘</b></span>
+        <span>${scopeLabel(S.scope)} ${pr.total}개 중 <b>${done}개 익힘</b></span>
         <span class="sub">${speed}</span>
       </div>
     </div>
@@ -256,7 +256,8 @@ function viewHome() {
   </section>
   <section class="panel"><div class="row-between"><b>이번 주</b><span class="sub">${st ? `${st}일째 이어서 하는 중` : '오늘부터 시작해요'}</span></div><div class="week">${week}</div></section>
   <nav class="tabs">
-    <button class="tab${A.sheet === 'backup' ? ' on' : ''}" data-act="sheet" data-arg="backup">폰 ↔ 컴퓨터 옮기기</button>
+    <button class="tab" data-act="stats">현황</button>
+    <button class="tab${A.sheet === 'backup' ? ' on' : ''}" data-act="sheet" data-arg="backup">옮기기</button>
     <button class="tab${A.sheet === 'settings' ? ' on' : ''}" data-act="sheet" data-arg="settings">설정</button>
   </nav>
   ${A.sheet === 'backup' ? viewBackup() : A.sheet === 'settings' ? viewSettings() : ''}
@@ -269,11 +270,14 @@ function viewPace() {
   const today = dayKey(Date.now());
   const opt = (act, arg, on, title, desc) => `<button class="opt${on ? ' on' : ''}" data-act="${act}" data-arg="${arg}" aria-pressed="${on}">
       <span class="dot"></span><span><b>${title}</b><small>${desc}</small></span></button>`;
-  const scopes = Object.entries(SCOPES).map(([k, v]) => {
-    const n = scopeSet(IX, k).size;
-    const desc = k === 'star3' ? '시험이 급할 때. 가장 자주 나오는 것부터' : k === 'core' ? '1학년 의학용어 수업 범위 (★ 확장은 빼고)' : '핵심을 다 넣은 뒤 확장(★)까지';
-    return opt('dscope', k, d.scope === k, `${v.label} · ${n}개`, desc);
+  const on = new Set([...normScope(d.scope)].map(Number));
+  const STAR = [[3, '자주 나옴', '국시·시험에 자주, 매일 쓰는 말'], [2, '중요', '수업에서 꼭 배우는 말'], [1, '확장', '알아 두면 좋은 말']];
+  const scopes = STAR.map(([n, name, desc]) => {
+    const cnt = IX.items.filter(x => x.star === n).length;
+    return `<button class="opt check${on.has(n) ? ' on' : ''}" data-act="dstar" data-arg="${n}" aria-pressed="${on.has(n)}">
+      <span class="dot box"></span><span><b><span class="stars">${'★'.repeat(n)}</span> ${name} · ${cnt}개</b><small>${desc}</small></span></button>`;
   }).join('');
+  const scopeN = scopeSet(IX, d.scope).size;
   const daily = PACES.map(x => {
     const on = d.pace.mode === 'daily' && d.pace.cards === x.cards;
     return opt('dpace', x.cards, on, `${x.label} · 하루 ${x.cards}장${x.cards === RULES.dailyCards ? ' (추천)' : ''}`, `하루 약 ${minutesForCards(x.cards)}분`);
@@ -287,7 +291,7 @@ function viewPace() {
       <div class="chips">${[4, 8, 12, 16].map(n => `<button class="chip${d.pace.end === addDays(today, n * 7) ? ' on' : ''}" data-act="dweeks" data-arg="${n}">${n}주 뒤</button>`).join('')}</div>
       ${d.pace.end ? (info.ended ? '<p class="note warn-t">오늘보다 뒤 날짜를 골라 주세요.</p>' : `
         <p class="note">${info.daysLeft}일 남음 · 새 단어는 ${info.newDays}일 동안 넣고, 마지막 ${info.reviewOnly}일은 복습만 해요.</p>
-        ${info.heavy ? `<p class="note warn-t">하루 40분이 넘어요.${d.scope !== 'star3' ? ' <button class="link" data-act="dscope" data-arg="star3">★★★만 먼저</button> 하는 걸 권해요.' : ' 날짜를 조금 늦출 수 있는지 봐 주세요.'}</p>` : ''}`)
+        ${info.heavy ? `<p class="note warn-t">하루 40분이 넘어요.${normScope(d.scope) !== '3' ? ' <button class="link" data-act="dscope" data-arg="3">★★★만 먼저</button> 하는 걸 권해요.' : ' 날짜를 조금 늦출 수 있는지 봐 주세요.'}</p>` : ''}`)
       : '<p class="note">날짜를 고르면 하루에 몇 개씩 넣을지 계산해요.</p>'}
     </div>`;
   }
@@ -305,7 +309,9 @@ function viewPace() {
   const disabled = goalOn && (!d.pace.end || d.pace.end <= today);
   return `${A.first ? stepTop(2, 'tolook') : '<header class="top"><h1>공부 계획</h1><button class="btn small" data-act="home">닫기</button></header>'}
   ${A.first ? '<h1 class="hero-title" style="font-size:26px;margin-bottom:14px">언제까지 외울까요?</h1>' : ''}
-  <section class="panel"><h2>무엇을 공부할까요?</h2><div class="opts">${scopes}</div></section>
+  <section class="panel"><div class="row-between"><h2>무엇을 공부할까요?</h2><span class="sub">${scopeN}개</span></div>
+    <p class="note">중요도를 골라요. 여러 개 고를 수 있어요. 고른 단어에 필요한 조각은 함께 들어가요.</p>
+    <div class="opts">${scopes}</div></section>
   <section class="panel"><h2>얼마나 빨리 할까요?</h2>
     <div class="opts">${daily}
       ${opt('dgoal', '', goalOn, '날짜까지 끝내기', '시험일을 넣으면 하루 새 단어 수를 계산해요')}
@@ -314,6 +320,58 @@ function viewPace() {
   ${sum}
   ${A.first ? '' : '<p class="note center">계획을 바꿔도 지금까지 공부한 기록은 그대로예요.</p>'}
   <div class="bottom-cta"><button class="btn primary big" data-act="savepace"${disabled ? ' disabled' : ''}>${A.first ? '이 계획으로 하기' : '저장'}</button></div>`;
+}
+
+// 현황: 얼마나 공부했고, 얼마나 기억하는지
+function viewStats() {
+  const o = overview(IX, A.log, A.states, { now: Date.now(), retention: A.settings.retention });
+  const pctOf = (n, t) => (t ? Math.round((n / t) * 100) : 0);
+  const bar = g => `<div class="bar" aria-hidden="true"><i class="s-long" style="width:${pctOf(g.long, g.total)}%"></i><i class="s-mastered" style="width:${pctOf(g.mastered, g.total)}%"></i><i class="s-learning" style="width:${pctOf(g.learning, g.total)}%"></i></div>`;
+  const done = g => g.mastered + g.long;
+  const goal = Math.round(A.settings.retention * 100);
+  const actual = o.actual == null ? null : Math.round(o.actual * 100);
+  const recall = o.recall == null ? null : Math.round(o.recall * 100);
+  const maxAhead = Math.max(1, ...o.ahead.map(a => a.n));
+  const wd = ['일', '월', '화', '수', '목', '금', '토'];
+  return `<header class="top"><h1>현황</h1><button class="btn small" data-act="home">닫기</button></header>
+  <section class="panel">
+    <h2>얼마나 공부했나</h2>
+    <div class="sumcard">
+      <div><b>${o.started}</b><span>공부한 단어</span></div>
+      <div><b>${done(o.all)}</b><span>익힘 이상</span></div>
+      <div><b>${o.studyDays}일</b><span>공부한 날</span></div>
+    </div>
+    ${bar(o.all)}
+    <ul class="legend">
+      <li><i class="s-new"></i>새 단어 ${o.all.new}</li><li><i class="s-learning"></i>배우는 중 ${o.all.learning}</li>
+      <li><i class="s-mastered"></i>익힘 ${o.all.mastered}</li><li><i class="s-long"></i>오래 기억 ${o.all.long}</li>
+    </ul>
+    <p class="note" style="margin-top:8px">익힘 = 다른 날 3번 맞힘 · 오래 기억 = 다음 복습까지 3주 이상</p>
+  </section>
+  <section class="panel">
+    <h2>얼마나 기억하나</h2>
+    <div class="meter-row"><span>최근 30일 실제 기억률</span><b>${actual == null ? '–' : actual + '%'}</b></div>
+    <div class="meter"><i style="width:${actual || 0}%"></i><em style="left:${goal}%" title="목표 ${goal}%"></em></div>
+    <p class="note">복습 ${o.reviews}번 중 처음에 맞힌 비율이에요. 목표는 ${goal}%${actual == null ? '. 복습이 쌓이면 보여요.' : actual >= goal - 3 ? '. 잘 지키고 있어요.' : '. 조금 낮아요. 매일 복습을 거르지 않는 게 가장 좋아요.'}</p>
+    <div class="meter-row" style="margin-top:12px"><span>지금 기억하고 있을 확률</span><b>${recall == null ? '–' : recall + '%'}</b></div>
+    <div class="meter"><i style="width:${recall || 0}%"></i></div>
+    <p class="note">공부한 단어 ${o.started}개를 지금 시험 보면 평균 이만큼 맞힐 거라는 앱의 계산이에요.</p>
+  </section>
+  <section class="panel">
+    <h2>중요도별</h2>
+    ${[3, 2, 1].map(n => { const g = o.byStar[n]; return `<div class="row-stat"><div class="row-between"><span><span class="stars">${'★'.repeat(n)}</span> ${n === 3 ? '자주 나옴' : n === 2 ? '중요' : '확장'}</span><span class="sub">${done(g)} / ${g.total} 익힘 · 시작 ${g.total - g.new}</span></div>${bar(g)}</div>`; }).join('')}
+  </section>
+  <section class="panel">
+    <h2>앞으로 7일 복습</h2>
+    <div class="ahead">${o.ahead.map((a, i) => `<div><span class="n">${a.n}</span><i style="height:${Math.round((a.n / maxAhead) * 64)}px"></i><span>${i === 0 ? '오늘' : wd[new Date(a.day + 'T12:00:00').getDay()]}</span></div>`).join('')}</div>
+  </section>
+  <section class="panel">
+    <h2>장별</h2>
+    ${o.byUnit.map(g => `<div class="row-stat"><div class="row-between"><span>${g.unit.n}. ${esc(g.unit.short)}</span><span class="sub">${done(g)} / ${g.total}</span></div>${bar(g)}</div>`).join('')}
+  </section>
+  ${o.sticky.length ? `<section class="panel"><h2>끈질긴 단어</h2><p class="note">여러 번 틀린 단어예요. 내 암기법을 만들어 보세요.</p>
+    <ul class="fam" style="margin-top:6px">${o.sticky.slice(0, 12).map(id => { const w = IX.get(id); return w ? `<li><b lang="en">${esc(w.t)}</b> ${esc(w.ko[0])}</li>` : ''; }).join('')}</ul></section>` : ''}
+  <div class="bottom-cta"><button class="btn primary big" data-act="home">닫기</button></div>`;
 }
 
 function viewBackup() {
@@ -620,7 +678,15 @@ const ACT = {
     A.draft = { scope: A.settings.scope, pace: { ...A.settings.pace } };
     go('pace');
   },
-  dscope: k => { if (SCOPES[k]) { A.draft.scope = k; render(); } },
+  dscope: k => { A.draft.scope = normScope(k); render(); },
+  dstar: n => {
+    const on = new Set([...normScope(A.draft.scope)].map(Number));
+    n = Number(n);
+    if (on.has(n)) { if (on.size === 1) { toast('하나는 골라야 해요'); return; } on.delete(n); } else on.add(n);
+    A.draft.scope = [...on].sort((a, b) => b - a).join('');
+    render();
+  },
+  stats: () => go('stats'),
   dpace: n => { A.draft.pace = { mode: 'daily', cards: Number(n) }; render(); },
   dgoal: () => { if (A.draft.pace.mode !== 'goal') A.draft.pace = { mode: 'goal', end: '' }; render(); },
   dweeks: n => {
