@@ -285,6 +285,11 @@ details.units .chip { min-height: 38px; }
 .pk-two { display: grid; grid-template-columns: 1fr 1.3fr; gap: 8px; }
 .pk-two .btn { white-space: nowrap; font-size: 15px; padding-left: 6px; padding-right: 6px; }
 
+.listbar { margin: 10px 0 4px; }
+.listbar .chip.add { border-style: dashed; }
+.listbar-tools { font-size: 13px; margin-top: 6px; color: var(--sub); }
+.track-lists { margin: -2px 0 10px; }
+
 /* 준비 끝 */
 .readycard { background: var(--pri); color: var(--pri-ink); border-radius: calc(var(--r-card) + 4px); padding: 22px; display: grid; gap: 12px; margin-bottom: 12px; }
 .readycard .big { font-family: var(--display); font-weight: var(--display-w); font-size: 38px; line-height: 1.1; letter-spacing: -0.03em; }

@@ -25,7 +25,8 @@ const DEFAULTS = {
   seenGuide: false,                              // 첫 시작(환영 → 색 → 계획 → 준비)을 마쳤는지
   theme: 'burgundy',                             // 색: burgundy | glacier | lavender | sage | sunset
   look: 'basic',                                 // 모양: basic 기본 | soft 부드러움
-  myList: [],                                    // 내 단어 (직접 고른 id)
+  lists: [],                                     // 내 단어 목록 여러 개 [{ id, name, ids, pace }]
+  curList: '',                                   // 지금 쓰는 내 단어 목록 id
 };
 const A = {
   log: [],
@@ -67,8 +68,14 @@ async function boot() {
   const saved = await store.get('session', null);
   if (saved && saved.day === dayKey(Date.now()) && !isDone(saved)) A.sess = saved;
   applyLook(A.settings.theme, A.settings.look);
-  IX.myList = A.settings.myList || [];
   if (A.settings.scope === 'my') { A.settings.track = 'my'; A.settings.myPace = A.settings.pace; A.settings.scope = '321'; }
+  // 예전 하나짜리 내 단어 → 목록 여러 개
+  if (!(A.settings.lists || []).length && (A.settings.myList || []).length) {
+    A.settings.lists = [{ id: 'L1', name: '내 단어 1', ids: A.settings.myList, pace: A.settings.myPace || { mode: 'daily', cards: 50 } }];
+    A.settings.curList = 'L1';
+  }
+  delete A.settings.myList; delete A.settings.myPace;
+  IX.myList = myIds();
   recompute();
   if (!A.settings.seenGuide && !A.log.length) { A.first = true; A.view = 'welcome'; }
   render();
@@ -80,10 +87,33 @@ function recompute() {
   A.states = replay(A.log, { retention: A.settings.retention });
 }
 
-// 지금 따르는 계획: 추천 계획(scope·pace) 또는 내 단어(myPace). settings.track으로 고른다.
+// 내 단어 목록(여러 개). curL() = 지금 고른 목록. 엔진의 범위 'my'는 IX.myList(= 지금 목록)를 쓴다.
 const DEFAULT_MY_PACE = { mode: 'daily', cards: 50 };
-const AP = () => A.settings.track === 'my' && (A.settings.myList || []).length
-  ? { track: 'my', scope: 'my', pace: A.settings.myPace || DEFAULT_MY_PACE }
+const curL = () => { const L = A.settings.lists || []; return L.find(l => l.id === A.settings.curList) || L[0] || null; };
+const myIds = () => (curL() ? curL().ids : []);
+const myName = () => (curL() ? curL().name : '내 단어');
+function syncMy() { IX.myList = myIds(); delete ORDERS.my; }
+function newList(name) {
+  const L = A.settings.lists || (A.settings.lists = []);
+  let n = L.length + 1; while (L.some(l => l.name === `내 단어 ${n}`)) n++;
+  const l = { id: 'L' + Date.now().toString(36), name: name || `내 단어 ${n}`, ids: [], pace: { ...DEFAULT_MY_PACE } };
+  L.push(l); A.settings.curList = l.id; syncMy();
+  return l;
+}
+// 공부 계획 화면에서 목록을 바꿔 가며 기간을 고를 때, 목록마다 고른 기간을 기억했다가 저장할 때 한꺼번에 쓴다
+function draftKeepMy() { const d = A.draft; if (d && d.scope === 'my' && curL()) (d.myPaces || (d.myPaces = {}))[curL().id] = d.pace; }
+function draftLoadMy() { const d = A.draft; if (d && d.scope === 'my' && curL()) d.pace = { ...((d.myPaces && d.myPaces[curL().id]) || curL().pace || DEFAULT_MY_PACE) }; }
+function setMyIds(ids) { const l = curL() || newList(); l.ids = ids; syncMy(); }
+// 목록 고르기 줄: 목록 칩 + 새 목록 + 이름 바꾸기·지우기
+function listBar() {
+  const L = A.settings.lists || [];
+  const c = curL();
+  return `<div class="listbar"><div class="chips">${L.map(l => `<button class="chip${c && l.id === c.id ? ' on' : ''}" data-act="lsel" data-arg="${l.id}">${esc(l.name)} · ${l.ids.length}</button>`).join('')}
+    <button class="chip add" data-act="lnew">+ 새 목록</button></div>
+    ${c ? `<div class="listbar-tools"><button class="link" data-act="lren">이름 바꾸기</button> · <button class="link" data-act="ldel">목록 지우기</button></div>` : ''}</div>`;
+}
+const AP = () => A.settings.track === 'my' && myIds().length
+  ? { track: 'my', scope: 'my', pace: curL().pace || DEFAULT_MY_PACE }
   : { track: 'rec', scope: A.settings.scope, pace: A.settings.pace };
 // 오늘 새 단어 양 조절(미리 더 하기 / 오늘은 적게). 그날만 쓴다.
 const todayAdj = () => { const a = A.settings.todayAdj; return a && a.day === dayKey(Date.now()) ? a.n : 0; };
@@ -277,10 +307,10 @@ function viewHome() {
   <header class="top home-top"><div><span class="date">${dateLine}</span><h1>오늘 할 일</h1></div>
     <div class="top-r">${st ? `<span class="pill">${IC.flame}${st}일 연속</span>` : ''}<button class="icon-round" data-act="guide" aria-label="사용법">${IC.help}</button></div></header>
   ${inKakao ? '<div class="warn">카카오톡 안에서 열렸어요. 여기서 공부하면 기록이 따로 저장돼요. 오른쪽 위 메뉴에서 <b>다른 브라우저로 열기</b>를 눌러 주세요.</div>' : ''}
-  ${(S.myList || []).length ? `<div class="seg track-seg" role="radiogroup" aria-label="무엇을 공부할까요">
+  ${(A.settings.lists || []).some(l => l.ids.length) ? `<div class="seg track-seg" role="radiogroup" aria-label="무엇을 공부할까요">
     <button class="${S.track === 'rec' ? 'on' : ''}" data-act="track" data-arg="rec"><b>추천 단어</b><small>${esc(scopeLabel(A.settings.scope))}</small></button>
-    <button class="${S.track === 'my' ? 'on' : ''}" data-act="track" data-arg="my"><b>내 단어</b><small>직접 고른 ${(S.myList || []).length}개</small></button>
-  </div>` : ''}
+    <button class="${S.track === 'my' ? 'on' : ''}" data-act="track" data-arg="my"><b>내 단어</b><small>${esc(myName())} · ${myIds().length}개</small></button>
+  </div>${S.track === 'my' && (A.settings.lists || []).length > 1 ? `<div class="chips track-lists">${A.settings.lists.map(l => `<button class="chip${l.id === curL().id ? ' on' : ''}" data-act="lsel" data-arg="${l.id}">${esc(l.name)} · ${l.ids.length}</button>`).join('')}</div>` : ''}` : ''}
   <section class="hero">${hero}</section>
   <button class="btn pickstudy" data-act="pick" data-arg="study">${IC.search || ''}단원·묶음 골라서 바로 공부</button>
   <section class="panel">
@@ -288,7 +318,7 @@ function viewHome() {
       <button class="ring" data-act="stats" aria-label="현황 보기" style="background:conic-gradient(var(--pri) 0 ${pct}%, var(--tint) ${pct}% 100%)"><span>${pct}%</span></button>
       <div class="txt">
         <div class="row-between"><b>공부 계획</b><button class="link" data-act="pace">바꾸기</button></div>
-        <span>${scopeLabel(S.scope)} ${pr.total}개 중 <b>${done}개 익힘</b></span>
+        <span>${S.scope === 'my' ? `'${esc(myName())}'` : scopeLabel(S.scope)} ${pr.total}개 중 <b>${done}개 익힘</b></span>
         <span class="sub">${speed}</span>
       </div>
     </div>
@@ -367,10 +397,11 @@ function viewPace() {
   <section class="panel"><div class="row-between"><h2>① 무엇을 외울까요?</h2><span class="sub">${sel.total}개${sel.remaining < sel.total ? ` · 남은 ${sel.remaining}` : ''}</span></div>
     <div class="seg" style="margin:8px 0 10px">
       <button class="${isMy ? '' : 'on'}" data-act="dscopemode" data-arg="rec"><b>추천 범위</b><small>중요도·단원으로</small></button>
-      <button class="${isMy ? 'on' : ''}" data-act="dscopemode" data-arg="my"><b>내 단어</b><small>직접 고르기 · ${(A.settings.myList || []).length}개</small></button>
+      <button class="${isMy ? 'on' : ''}" data-act="dscopemode" data-arg="my"><b>내 단어</b><small>직접 고른 목록 · ${(A.settings.lists || []).length}개</small></button>
     </div>
-    ${isMy ? `<p class="note">내가 고른 단어만 공부해요. 단어에 필요한 조각은 함께 들어가요.</p>
-      <button class="btn" style="width:100%;margin-top:8px" data-act="pick" data-arg="pace">${(A.settings.myList || []).length ? '내 단어 고치기' : '단어 고르기'}</button>`
+    ${isMy ? `<p class="note">고른 목록의 단어만 공부해요. 목록마다 기간을 따로 정해요. 단어에 필요한 조각은 함께 들어가요.</p>
+      ${listBar()}
+      <button class="btn" style="width:100%;margin-top:8px" data-act="pick" data-arg="pace">${myIds().length ? `"${esc(myName())}" 단어 고치기` : '단어 고르기'}</button>`
     : `<p class="note">중요도를 고르고, 필요하면 단원을 골라요. 여러 개 고를 수 있어요.</p>
     <div class="opts">${starOpts}</div>
     <details class="units"${units ? ' open' : ''}><summary>단원 고르기${units ? ` (${units.size}개)` : ' (전체)'}</summary><div class="chips" style="margin-top:10px">${unitChips}</div></details>`}
@@ -766,11 +797,35 @@ const ACT = {
   pace: () => {
     const ap = AP();
     A.draft = { scope: ap.scope, pace: { ...ap.pace },
-      rec: { scope: A.settings.scope, pace: { ...A.settings.pace } }, my: { pace: { ...(A.settings.myPace || DEFAULT_MY_PACE) } } };
+      rec: { scope: A.settings.scope, pace: { ...A.settings.pace } }, my: { pace: { ...((curL() && curL().pace) || DEFAULT_MY_PACE) } } };
     if (A.first && A.draft.pace.mode !== 'goal') A.draft.pace = { mode: 'goal', end: addDays(dayKey(Date.now()), 16 * 7) };
     go('pace');
   },
   dscope: k => { A.draft.scope = normScope(k); render(); },
+  lsel: async id => { draftKeepMy(); A.settings.curList = id; syncMy(); draftLoadMy(); await saveSettings(); render(); },
+  lnew: async () => {
+    const name = (prompt('새 목록 이름 (예: 중간고사, 교수님 목록)', '') || '').trim();
+    draftKeepMy();
+    newList(name.slice(0, 20) || undefined);
+    draftLoadMy();
+    await saveSettings();
+    const back = A.view === 'pace' ? 'pace' : A.view === 'qset' ? 'qset' : A.view;
+    ACT.pick(back);
+  },
+  lren: async () => {
+    const l = curL(); if (!l) return;
+    const name = (prompt('목록 이름', l.name) || '').trim();
+    if (!name) return;
+    l.name = name.slice(0, 20); await saveSettings(); render();
+  },
+  ldel: async () => {
+    const l = curL(); if (!l) return;
+    if (!confirm(`"${l.name}" 목록을 지울까요? 공부 기록은 그대로 남아요.`)) return;
+    A.settings.lists = A.settings.lists.filter(z => z.id !== l.id);
+    A.settings.curList = A.settings.lists[0] ? A.settings.lists[0].id : '';
+    if (!A.settings.lists.length && A.settings.track === 'my') A.settings.track = 'rec';
+    syncMy(); await saveSettings(); render(); toast('목록을 지웠어요');
+  },
   track: async t => { if (A.settings.track === t) return; A.settings.track = t; await saveSettings(); render(); toast(t === 'my' ? '내 단어로 공부해요' : '추천 단어로 공부해요'); },
   adj: async v => { A.settings.todayAdj = { day: dayKey(Date.now()), n: Number(v) }; await saveSettings(); render(); },
   dexam: () => {
@@ -794,7 +849,7 @@ const ACT = {
     const isMy = d.scope === 'my';
     if ((m === 'my') === isMy) return;
     if (isMy) d.my = { pace: d.pace }; else d.rec = { scope: d.scope, pace: d.pace };
-    if (m === 'my') { d.scope = 'my'; d.pace = { ...d.my.pace }; if (!(A.settings.myList || []).length) { ACT.pick('pace'); return; } }
+    if (m === 'my') { d.scope = 'my'; d.pace = { ...d.my.pace }; if (!myIds().length) { if (!curL()) newList(); ACT.pick('pace'); return; } }
     else { d.scope = d.rec.scope; d.pace = { ...d.rec.pace }; }
     render();
   },
@@ -822,7 +877,8 @@ const ACT = {
       d.pace.start = dayKey(Date.now());
       d.pace.perDay0 = paceInfo(IX, A.states, { pace: d.pace, scope: d.scope }).perDay;
     }
-    if (d.scope === 'my') { A.settings.myPace = d.pace; A.settings.track = 'my'; }
+    for (const [id, pc] of Object.entries(d.myPaces || {})) { const l = (A.settings.lists || []).find(z => z.id === id); if (l && pc.mode === 'goal') { pc.start = pc.start || dayKey(Date.now()); } if (l) l.pace = pc; }
+    if (d.scope === 'my') { if (curL()) curL().pace = d.pace; A.settings.track = 'my'; }
     else { A.settings.scope = d.scope; A.settings.pace = d.pace; A.settings.track = 'rec'; }
     await saveSettings();
     A.draft = null;
@@ -853,7 +909,7 @@ const quizPool = cfg => {
   if (cfg.range === 'wrong') return IX.items.filter(x => { const s = A.states.get(x.id); return s && s.fails >= 2; });
   if (cfg.range === 'units') return IX.items.filter(x => cfg.units.includes(x.unit));
   if (cfg.range === 'ids') { const set = new Set(cfg.ids || []); return IX.items.filter(x => set.has(x.id)); }
-  if (cfg.range === 'my') { const set = new Set(A.settings.myList || []); return IX.items.filter(x => set.has(x.id)); }
+  if (cfg.range === 'my') { const set = new Set(myIds()); return IX.items.filter(x => set.has(x.id)); }
   const set = scopeSet(IX, AP().scope);
   return IX.items.filter(x => set.has(x.id));
 };
@@ -866,12 +922,12 @@ function viewQuizSet() {
     ['plan', '공부 계획 범위', scopeLabel(AP().scope)],
     ['wrong', '자주 틀린 단어', '두 번 이상 틀린 단어'],
     ['units', '단원 고르기', '시험 범위 단원만'],
-    ['my', '내 단어', '직접 고른 단어'],
+    ['my', '내 단어', myIds().length ? myName() : '직접 고른 단어'],
     ...(c.ids ? [['ids', `답별 단어: ${c.idsLabel}`, '답별 단어에서 고른 목록']] : []),
   ];
   const rangeOpts = ranges.map(([k, t, d]) => `<button class="opt${c.range === k ? ' on' : ''}" data-act="qrange" data-arg="${k}" aria-pressed="${c.range === k}">
     <span class="dot"></span><span class="grow"><b>${t}${k !== 'units' ? ` · ${cnt(k)}개` : ''}</b><small>${esc(d)}</small></span></button>`).join('');
-  const myBtn = c.range === 'my' ? `<button class="btn" style="width:100%;margin-top:10px" data-act="pick" data-arg="qset">${(A.settings.myList || []).length ? '내 단어 고치기' : '단어 고르기'}</button>` : '';
+  const myBtn = c.range === 'my' ? `${listBar()}<button class="btn" style="width:100%;margin-top:10px" data-act="pick" data-arg="qset">${myIds().length ? `"${esc(myName())}" 단어 고치기` : '단어 고르기'}</button>` : '';
   const unitChips = c.range === 'units' ? `<div class="chips" style="margin-top:10px">${IX.units.map(u => `<button class="chip${c.units.includes(u.id) ? ' on' : ''}" data-act="qunit" data-arg="${u.id}">${u.n}. ${esc(u.short)}</button>`).join('')}</div>` : '';
   const typeOpts = Object.entries(QTYPES).map(([k, t]) => `<button class="opt check${c.types.includes(k) ? ' on' : ''}" data-act="qtype" data-arg="${k}" aria-pressed="${c.types.includes(k)}">
     <span class="dot box"></span><span class="grow"><b>${t.label}</b><small>${t.desc}${t.subj ? ' · 주관식' : ''}</small></span></button>`).join('');
@@ -1133,7 +1189,7 @@ function viewPick() {
   const k = A.pk;
   const chips = (key, map) => (Array.isArray(map) ? map : Object.entries(map)).map(([v, l]) => `<button class="chip${k[key] === v ? ' on' : ''}" data-act="pkf" data-arg="${key}:${v}">${l}</button>`).join('');
   const grpSel = `<select class="pk-grp" data-pkgrp><option value="">헷갈리는 묶음: 전체</option>${IX.groups.map((g, i) => g.ids.length ? `<option value="${i}"${k.grp === String(i) ? ' selected' : ''}>${esc(g.t)} (${g.ids.length})</option>` : '').join('')}</select>`;
-  return `<header class="top"><h1>${k.study ? '골라서 공부' : '내 단어 고르기'}</h1><button class="btn small" data-act="pkcancel">취소</button></header>
+  return `<header class="top"><h1>${k.study ? '골라서 공부' : esc(myName()) + ' 고르기'}</h1><button class="btn small" data-act="pkcancel">취소</button></header>
   ${k.study ? '<p class="note" style="margin:-4px 2px 10px">단원·중요도·묶음으로 골라서 지금 바로 공부해요. 공부 계획은 바뀌지 않아요.</p>' : ''}
   <section class="panel pk-filter">
     <input class="pk-search" type="search" placeholder="영어·한글로 찾기 (예: cardi, 심장)" value="${esc(k.q)}" data-pksearch>
@@ -1164,7 +1220,8 @@ Object.assign(ACT, {
   // back = 돌아갈 화면. 'study'면 골라서 바로 공부(빈 선택에서 시작)
   pick: back => {
     const study = back === 'study';
-    A.pk = { sel: new Set(study ? [] : A.settings.myList || []), q: '', kind: '', star: '', status: '', unit: '', grp: '', open: new Set(), back: study ? 'home' : back || A.view, study };
+    if (!study && !curL()) newList();
+    A.pk = { sel: new Set(study ? [] : myIds()), q: '', kind: '', star: '', status: '', unit: '', grp: '', open: new Set(), back: study ? 'home' : back || A.view, study };
     go('pickw');
   },
   pkstudy: () => {
@@ -1183,11 +1240,12 @@ Object.assign(ACT, {
     startSession({ day: dayKey(Date.now()), reviews, fresh }, 'pick');
   },
   pkaddmy: async () => {
-    const set = new Set(A.settings.myList || []); const before = set.size;
+    if (!curL()) newList();
+    const set = new Set(myIds()); const before = set.size;
     for (const id of A.pk.sel) set.add(id);
-    A.settings.myList = [...set]; IX.myList = A.settings.myList; delete ORDERS.my;
+    setMyIds([...set]);
     await saveSettings();
-    toast(`내 단어에 ${set.size - before}개를 더했어요 (모두 ${set.size}개)`);
+    toast(`"${myName()}"에 ${set.size - before}개를 더했어요 (모두 ${set.size}개)`);
   },
   pkf: arg => { const [key, v] = arg.split(':'); A.pk[key] = v; render(); },
   pkall: on => { for (const x of pkFiltered()) { if (on === '1') A.pk.sel.add(x.id); else A.pk.sel.delete(x.id); } pkRefreshList(); },
@@ -1213,14 +1271,12 @@ Object.assign(ACT, {
   },
   pkcancel: () => go(A.pk.back || 'home'),
   pksave: async () => {
-    A.settings.myList = [...A.pk.sel];
-    IX.myList = A.settings.myList;
-    delete ORDERS.my;
+    setMyIds([...A.pk.sel]);
     await saveSettings();
-    if (A.pk.back === 'pace' && A.draft) A.draft.scope = A.settings.myList.length ? 'my' : A.draft.scope;
+    if (A.pk.back === 'pace' && A.draft) A.draft.scope = myIds().length ? 'my' : A.draft.scope;
     if (A.qcfg && A.pk.back === 'qset') A.qcfg.range = 'my';
     go(A.pk.back || 'home');
-    toast(`내 단어 ${A.settings.myList.length}개를 저장했어요`);
+    toast(`"${myName()}"에 ${myIds().length}개를 저장했어요`);
   },
 });
 document.addEventListener('input', e => {
@@ -1242,7 +1298,7 @@ document.addEventListener('toggle', e => {
 const isFlag = id => !!(A.flags[id] && A.flags[id].on);
 const COLS = [
   { k: 'flag', g: '내가 표시', name: '아주 중요', icon: '★' },
-  { k: 'my', g: '내가 표시', name: '내 단어' },
+  { k: 'my', g: '내가 표시', name: '내 단어 목록' },
   { k: 'b1', g: '공부할 때 누른 답', name: '모름', sub: '모름 + 확인에서 틀림', cls: 'b1' },
   { k: 'b2', g: '공부할 때 누른 답', name: '헷갈림', cls: 'b2' },
   { k: 'b3', g: '공부할 때 누른 답', name: '알 것 같음', cls: 'b3' },
@@ -1255,7 +1311,7 @@ const fmtDay = t => { const d = new Date(t); return `${d.getMonth() + 1}/${d.get
 // 모음 하나 → [{ id, t: 최근 시각, n: 정렬용 횟수, info }]
 function colItems(k, mode, marks) {
   if (k === 'flag') return Object.entries(A.flags).filter(([, v]) => v.on).map(([id, v]) => ({ id, t: v.t, n: 0, info: `표시 ${fmtDay(v.t)}` }));
-  if (k === 'my') return (A.settings.myList || []).map((id, i) => ({ id, t: i, n: 0, info: '' }));
+  if (k === 'my') return myIds().map((id, i) => ({ id, t: i, n: 0, info: '' }));
   if (k[0] === 'b') {
     const b = Number(k[1]);
     return marksList(marks, b, mode).map(m => ({ id: m.id, t: m.lastT, n: m.n[b],
@@ -1304,10 +1360,11 @@ function viewMarks() {
       ${sel('kind', [['', '모든 종류'], ['part', '조각'], ['word', '단어'], ['abbr', '약어']])}
       ${sel('sort', [['recent', '최근 순'], ['many', '많이 누른 순'], ['abc', '알파벳 순']])}
     </div>
+    ${cur.k === 'my' ? listBar() : ''}
     ${list.length ? `<div class="mk-actions">
       <button class="btn primary" data-act="mkstudy">카드로 다시 공부</button>
       <button class="btn" data-act="mkquiz">이 단어로 시험</button>
-      ${cur.k === 'my' ? '<button class="btn" data-act="pick" data-arg="marks">내 단어 고치기</button>' : '<button class="btn" data-act="mkmy">내 단어에 넣기</button>'}
+      ${cur.k === 'my' ? '<button class="btn" data-act="pick" data-arg="marks">단어 고치기</button>' : '<button class="btn" data-act="mkmy">내 단어 목록에 넣기</button>'}
     </div>
     <ul class="mk-list">${rows}</ul>`
     : `<p class="note center" style="padding:16px">${empty}</p>${cur.k === 'my' ? '<button class="btn" style="width:100%" data-act="pick" data-arg="marks">내 단어 고르기</button>' : ''}`}
@@ -1335,11 +1392,12 @@ Object.assign(ACT, {
     go('qset');
   },
   mkmy: async () => {
-    const set = new Set(A.settings.myList || []); const before = set.size;
+    if (!curL()) newList();
+    const set = new Set(myIds()); const before = set.size;
     for (const id of mkIds()) set.add(id);
-    A.settings.myList = [...set]; IX.myList = A.settings.myList; delete ORDERS.my;
+    setMyIds([...set]);
     await saveSettings();
-    toast(`내 단어에 ${set.size - before}개를 더했어요 (모두 ${set.size}개)`);
+    toast(`"${myName()}"에 ${set.size - before}개를 더했어요 (모두 ${set.size}개)`);
   },
 });
 document.addEventListener('change', e => {
