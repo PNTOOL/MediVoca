@@ -2,7 +2,7 @@
 
 간호학생용 의학용어 암기 웹앱(PWA). 설계 전체는 docs/설계안.md (원본: https://claude.ai/artifact/QGCNfbY3yWDp2ha9xXyiMQ).
 사용자는 간호학과 학생이고 개발자가 아니다. 설명은 쉬운 한국어로, 요점만. 결과를 먼저 말한다.
-저장소: PNTOOL/medivoca · 앱 주소: https://pntool.github.io/medivoca/
+저장소: PNTOOL/MediVoca · 앱 주소: https://pntool.github.io/MediVoca/ (대소문자 그대로)
 
 ## 정한 것 (바꾸려면 사용자에게 먼저 묻는다)
 - 하루 50장: 복습을 먼저 채우고 남는 자리에 새 단어(최소 5, 최대 30). 같은 날 다시 나오는 카드는 50장에 세지 않는다.

@@ -2,7 +2,7 @@
 
 간호학생용 의학용어 암기 웹앱. 하루 50장(약 15분), 먼저 떠올리고 → 맞춰 보고 → 모르는 것은 자주, 아는 것은 드물게.
 
-- 앱 주소: https://pntool.github.io/medivoca/
+- 앱 주소: https://pntool.github.io/MediVoca/
 - 설계: [docs/설계안.md](docs/설계안.md) · 개발 메모: [CLAUDE.md](CLAUDE.md)
 - 단어: 조각 292 · 단어 351 · 약어 84 (하랑노트에서 옮김, 형식은 [data/README.md](data/README.md))
 
