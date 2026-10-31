@@ -3,7 +3,7 @@
 // 조각 형태로 id를 만든다: 'cardi/o' → 'p:cardi/o'
 export const partId = form => 'p:' + form;
 
-export function buildIndex(units, pairs = []) {
+export function buildIndex(units, pairs = [], confusions = []) {
   const items = [];
   const byId = new Map();
   const unitOf = new Map();
@@ -33,7 +33,14 @@ export function buildIndex(units, pairs = []) {
       pairsOf.get(id).push(p);
     }
   }
+  // 헷갈리는 묶음: 영어 → id, 항목 → 들어 있는 묶음
+  const idOf = t => ['w:', 'p:', 'a:'].map(p => p + t).find(id => byId.has(id));
+  const groups = confusions.map(g => ({ ...g, ids: g.w.map(idOf).filter(Boolean) }));
+  const groupsOf = new Map();
+  for (const g of groups) for (const id of g.ids) { if (!groupsOf.has(id)) groupsOf.set(id, []); groupsOf.get(id).push(g); }
   return {
+    groups,
+    groupsOf,
     units: units.map(u => u.unit),
     items,
     byId,
@@ -47,7 +54,7 @@ export function buildIndex(units, pairs = []) {
 }
 
 // 데이터 검사: 빈 칸, 중복, 없는 조각 참조, 없는 짝 참조. 문제를 글로 돌려준다.
-export function checkData(units, pairs = []) {
+export function checkData(units, pairs = [], confusions = []) {
   const errors = [];
   const seen = new Map();
   const KINDS = new Set(['part', 'word', 'abbr']);
@@ -77,6 +84,10 @@ export function checkData(units, pairs = []) {
   pairs.forEach((p, i) => {
     if (!p.t || !p.a || !p.b) errors.push('짝 ' + (i + 1) + ': 제목·설명이 비었어요');
     for (const id of [...(p.w || []), ...(p.sa || []), ...(p.sb || [])]) if (!seen.has(id)) errors.push('짝 ' + p.t + ': 없는 항목 ' + id);
+  });
+  confusions.forEach(g => {
+    if (!g.t || !Array.isArray(g.w) || g.w.length < 2) errors.push('헷갈리는 묶음 ' + (g.t || '?') + ': 용어가 2개 이상이어야 해요');
+    for (const w of g.w || []) if (!['w:', 'p:', 'a:'].some(p => seen.has(p + w))) errors.push('헷갈리는 묶음 ' + g.t + ': 없는 용어 ' + w);
   });
   return errors;
 }

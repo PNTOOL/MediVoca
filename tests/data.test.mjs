@@ -1,12 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { UNITS, PAIRS } from '../data/index.js';
+import { UNITS, PAIRS, CONFUSIONS } from '../data/index.js';
 import { buildIndex, checkData } from '../src/data.js';
 import { gradeSpell, gradeMeaning, speakable, rich } from '../src/text.js';
 
 test('단어 데이터 검사 통과: 16장, 조각·단어·약어 모두 있음', () => {
-  assert.deepEqual(checkData(UNITS, PAIRS), []);
-  const ix = buildIndex(UNITS, PAIRS);
+  assert.deepEqual(checkData(UNITS, PAIRS, CONFUSIONS), []);
+  const ix = buildIndex(UNITS, PAIRS, CONFUSIONS);
   const n = k => ix.items.filter(x => x.k === k).length;
   assert.equal(ix.units.length, 16);
   assert.ok(n('part') >= 292 && n('word') >= 351 && n('abbr') >= 84);
@@ -26,7 +26,7 @@ test('검사가 빈 칸·중복·없는 조각을 잡는다', () => {
 });
 
 test('조각 분해와 같은 조각 단어', () => {
-  const ix = buildIndex(UNITS, PAIRS);
+  const ix = buildIndex(UNITS, PAIRS, CONFUSIONS);
   const w = ix.get('w:dyspnea');
   assert.ok(w);
   assert.deepEqual(ix.partsOf(w).map(p => p.t), w.parts);

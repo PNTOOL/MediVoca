@@ -16,6 +16,8 @@ import t14 from './terms-14.js';
 import t15 from './terms-15.js';
 import t16 from './terms-16.js';
 import pairs from './pairs.js';
+import confusions from './confusions.js';
 
 export const UNITS = [t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11, t12, t13, t14, t15, t16];
 export const PAIRS = pairs;
+export const CONFUSIONS = confusions;
