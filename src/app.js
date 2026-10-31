@@ -121,8 +121,8 @@ function listBar() {
   const L = A.settings.lists || [];
   const c = curL();
   return `<div class="listbar"><div class="chips">${L.map(l => `<button class="chip${c && l.id === c.id ? ' on' : ''}" data-act="lsel" data-arg="${l.id}">${esc(l.name)} · ${l.ids.length}</button>`).join('')}
-    <button class="chip add" data-act="lnew">+ 새 목록</button></div>
-    ${c ? `<div class="listbar-tools">순서: ${orderName(c)} · <button class="link" data-act="lren">이름 바꾸기</button> · <button class="link" data-act="ldel">목록 지우기</button></div>` : ''}</div>`;
+    <button class="chip add" data-act="lnew">+ 새 단어장</button></div>
+    ${c ? `<div class="listbar-tools">순서: ${orderName(c)} · <button class="link" data-act="lren">이름 바꾸기</button> · <button class="link" data-act="ldel">단어장 지우기</button></div>` : ''}</div>`;
 }
 const AP = () => A.settings.track === 'syl' && A.settings.syl && sylUnits(A.settings.syl.scope).length
   ? { track: 'syl', scope: A.settings.syl.scope, pace: A.settings.syl.pace }
@@ -207,7 +207,7 @@ function viewWelcome() {
       <div class="feat"><div class="ic">${IC.cal}</div><div><b>잊기 직전에 다시</b><span>단어마다 기억을 계산해서 잊기 직전에 다시 보여 줘요. 맞힐수록 간격이 길어져요.</span></div></div>
       <div class="feat"><div class="ic">${IC.parts}</div><div><b>조각으로 풀기</b><span>cardi/o 심장 + -itis 염증 = 심장염. 조각을 알면 처음 보는 단어도 풀려요.</span></div></div>
     </div>
-    <p class="cite">근거: Dunlosky 외(2013) 공부법 비교 · 연속 재학습 연구 · FSRS 복습 계산 — 자세히는 시작 뒤 "사용법"에서</p>
+    <details class="cite"><summary>연구 근거 보기</summary><p>공부법 비교 연구(Dunlosky 외, 2013), 스스로 떠올리기와 간격 두고 복습하기 연구, 복습 계산법 FSRS를 바탕으로 했어요. 자세한 내용은 시작한 뒤 "사용법(?)"에 있어요.</p></details>
     <div class="bottom-cta">
       <button class="btn primary big" data-act="toway">시작하기</button>
       <label class="btn ghost">다른 기기에서 쓰던 기록이 있어요<input type="file" accept=".json,application/json" data-act="file" hidden></label>
@@ -293,7 +293,7 @@ function viewReady() {
   <h1 class="hero-title" style="font-size:26px;margin-bottom:14px">준비됐어요</h1>
   <section class="readycard">
     <div class="big">매일 약 ${info.minutes}분</div>
-    <p>${fmtDate(end, { year: 'numeric', month: 'long', day: 'numeric' })}까지 ${S.track === 'my' ? esc(myName()) : scopeLabel(S.scope)} ${info.total}개를 모두 넣어요</p>
+    <p>${S.track === 'my' ? esc(myName()) : scopeLabel(S.scope)} ${info.total.toLocaleString('ko-KR')}개를 ${fmtDate(end, { year: 'numeric', month: 'long', day: 'numeric' })}까지 끝내요</p>
     <div class="rows">
       <div><span>오늘</span><span>새 단어 ${p.fresh.length}개 · 약 ${p.minutes}분</span></div>
       <div><span>순서</span><span>${S.track === 'syl' ? sylUnits(S.scope).slice(0, 3).map(id => esc(IX.units.find(u => u.id === id).short)).join(' → ') + (sylUnits(S.scope).length > 3 ? ' → …' : '') : S.track === 'my' ? `${esc(myName())} · ${orderName(curL())}` : '조각(접두사·접미사)부터, 장별로'}</span></div>
@@ -302,7 +302,7 @@ function viewReady() {
   </section>
   <section class="panel ready-color"><div class="row-between"><b>색</b><span class="sub">마음에 드는 색을 눌러 보세요</span></div>
     <div class="sws">${THEMES.map(x => `<button class="sw${x.id === S.theme ? ' on' : ''}" aria-label="${x.name}" data-act="theme" data-arg="${x.id}"><span class="ring"><span class="dot" style="background:${x.pri}"></span></span>${x.name}</button>`).join('')}</div></section>
-  <p class="note center" style="margin:-2px 0 12px">모양, RN 영어 설명, 발음 속도, 목표 기억률은 나중에 설정(⚙)에서 바꿀 수 있어요.</p>
+  <p class="note center" style="margin:-2px 0 12px">글꼴 모양, 영어 설명, 발음 속도 같은 것은 나중에 설정(⚙)에서 바꿀 수 있어요.</p>
   ${tip}
   <div class="bottom-cta"><button class="btn primary big" data-act="finish">첫 공부 시작</button></div>`;
 }
@@ -356,9 +356,9 @@ function courseInfo() {
 
 // ───────── 홈: 오늘 공부할 단어 목록 고르기 (추천 · 학교 수업 · 내 단어 A, B …) ─────────
 function planDefs() {
-  const out = [{ key: 'rec', track: 'rec', icon: '✨', kind: '추천', name: '추천 단어', sub: scopeLabel(A.settings.scope) }];
-  if (A.settings.syl && sylUnits(A.settings.syl.scope).length) out.push({ key: 'syl', track: 'syl', icon: '🏫', kind: '학교 수업', name: '학교 수업 순서', sub: `${sylUnits(A.settings.syl.scope).length}개 단원` });
-  for (const l of A.settings.lists || []) out.push({ key: 'L:' + l.id, track: 'my', list: l, icon: '✏️', kind: '내 단어', name: l.name, sub: `${l.ids.length}개` });
+  const out = [{ key: 'rec', track: 'rec', icon: '✨', kind: '추천', name: '추천 단어장', sub: scopeLabel(A.settings.scope) }];
+  if (A.settings.syl && sylUnits(A.settings.syl.scope).length) out.push({ key: 'syl', track: 'syl', icon: '🏫', kind: '학교 수업', name: '학교 수업 단어장', sub: `${sylUnits(A.settings.syl.scope).length}개 단원` });
+  for (const l of A.settings.lists || []) out.push({ key: 'L:' + l.id, track: 'my', list: l, icon: '✏️', kind: '내 단어장', name: l.name, sub: `${l.ids.length}개` });
   return out;
 }
 // 잠깐 다른 계획으로 바꿔서 계산하고 되돌린다 (홈 목록의 오늘 할 일·진도)
@@ -384,10 +384,10 @@ function viewHome() {
     if (sess && !sess.doneCards) sess = null;
     const pct = r.pr.total ? Math.round(((r.pr.mastered + r.pr.long) / r.pr.total) * 100) : 0;
     const todayN = r.p.reviews.length + r.p.fresh.length;
-    const line = sess ? `<em class="badge">하던 곳 ${sess.doneCards}/${sess.total}</em>` : todayN ? `오늘 복습 ${r.p.reviews.length} · 새 단어 ${r.p.fresh.length} · 약 ${r.p.minutes}분` : '<span class="ok">✓ 오늘 할 일 끝</span>';
+    const line = sess ? `<em class="badge">하던 곳 · ${sess.total}장 중 ${sess.doneCards}장 봤어요</em>` : todayN ? `오늘 복습 ${r.p.reviews.length} · 새 단어 ${r.p.fresh.length} · 약 ${r.p.minutes}분` : '<span class="ok">✓ 오늘 할 일 끝</span>';
     return `<li><button class="pcard" data-act="todaypick" data-arg="${esc(def.key)}">
       <span class="pi">${def.icon}</span>
-      <span class="pb"><span class="pk">${def.kind}${def.key === lastKey ? ' · 마지막에 공부한 것' : ''}</span><b>${esc(def.name)}</b><small>${esc(r.c.line)}</small><small>${esc(def.sub)} · 시작 ${r.c.startedPct}% · 익힘 ${pct}% · ${esc(r.c.daily)}</small>
+      <span class="pb"><span class="pk">${def.kind}${def.key === lastKey ? ' · 마지막에 공부함' : ''}</span><b>${esc(def.name)}</b><small>${esc(r.c.line)}</small><small>${esc(def.sub)} · 본 단어 ${r.c.startedPct}% · 외움 ${pct}% · ${esc(r.c.daily)}</small>
         <span class="pbar"><i style="width:${pct}%"></i></span><span class="pt">${line}</span></span>
       <span class="go pick">고르기</span></button></li>`;
   }).join('');
@@ -397,11 +397,12 @@ function viewHome() {
   const tPct = tp && tp.pr.total ? Math.round(((tp.pr.mastered + tp.pr.long) / tp.pr.total) * 100) : 0;
   const tN = tp ? tp.p.reviews.length + tp.p.fresh.length : 0;
   const todayBox = `<section class="hero today-hero">
-    <div class="th-top"><span class="th-k">오늘 공부할 단어${today0.key === lastKey ? ' · 마지막에 공부한 목록' : ''}</span><button class="th-plan" data-act="planopen" data-arg="${esc(today0.key)}">그룹·진도 ›</button></div>
+    <div class="th-top"><span class="th-k">오늘 공부할 단어${today0.key === lastKey ? ' · 마지막에 공부한 단어장' : ''}</span><button class="th-plan" data-act="planopen" data-arg="${esc(today0.key)}">단원·진도 ›</button></div>
     <div class="th-name"><span>${today0.icon}</span><b>${esc(today0.name)}</b></div>
     <span class="th-sub">${tp ? esc(tp.c.line) : ''}</span>
-    <span class="th-sub">${esc(today0.sub)} · 시작 ${tp ? tp.c.startedPct : 0}% · 익힘 ${tPct}% · ${tp ? esc(tp.c.daily) : ''}</span>
-    ${tSess ? `<p class="th-line">하던 곳 ${tSess.doneCards} / ${tSess.total}장 · 남은 ${tSess.queue.length + (tSess.finalsAdded ? 0 : tSess.finals.length)}장</p><button class="btn primary big" data-act="resume">이어서 하기</button>`
+    <span class="th-sub">${esc(today0.sub)} · 본 단어 ${tp ? tp.c.startedPct : 0}% · 외움 ${tPct}% · ${tp ? esc(tp.c.daily) : ''}</span>
+    ${tSess && tSess.doneCards ? `<p class="th-line">하던 곳이 있어요 · ${tSess.total}장 중 ${tSess.doneCards}장 봤어요</p><button class="btn primary big" data-act="resume">이어서 하기</button>`
+      : tSess ? `<p class="th-line">오늘 할 일 ${tSess.total}장이 준비돼 있어요</p><button class="btn primary big" data-act="resume">오늘 공부 시작</button>`
       : tN ? `<div class="hero-stats"><div><b>${tp.p.reviews.length}</b><span>복습</span></div><div><b>${tp.p.fresh.length}</b><span>새 단어</span></div><div><b>${tp.p.minutes}<small>분</small></b><span>예상 시간</span></div></div><button class="btn primary big" data-act="start">오늘 공부 시작</button>`
       : `<p class="th-line">✓ 오늘 할 일 끝! 더 하려면 새 단어를 넣거나 시험을 봐요.</p><div class="hero-tools"><button class="htool" data-act="more">새 단어 ${RULES.batch}개 더</button><button class="htool" data-act="quizToday">오늘 단어 시험</button></div>`}
   </section>`;
@@ -410,13 +411,13 @@ function viewHome() {
   const dow = (new Date(today + 'T12:00:00').getDay() + 6) % 7;
   const week = ['월', '화', '수', '목', '금', '토', '일'].map((n, i) => { const k = addDays(today, i - dow); const cls = days.has(k) ? 'done' : k === today ? 'today' : ''; return `<div>${n}<i class="${cls}">${days.has(k) ? '✓' : ''}</i></div>`; }).join('');
   return `<header class="top home-top"><div><span class="date">${dateLine}</span><h1>무엇을 공부할까요?</h1></div>
-    <div class="top-r">${st ? `<span class="pill">${IC.flame}${st}일</span>` : ''}<button class="icon-round" data-act="guide" aria-label="사용법">${IC.help}</button><button class="icon-round" data-act="settings" aria-label="설정">${IC.gear}</button></div></header>
+    <div class="top-r">${st ? `<span class="pill">${IC.flame}${st}일 연속</span>` : ''}<button class="icon-round" data-act="guide" aria-label="사용법">${IC.help}</button><button class="icon-round" data-act="settings" aria-label="설정">${IC.gear}</button></div></header>
   ${inKakao ? '<div class="warn">카카오톡 안에서 열렸어요. 여기서 공부하면 기록이 따로 저장돼요. 오른쪽 위 메뉴에서 <b>다른 브라우저로 열기</b>를 눌러 주세요.</div>' : ''}
   <div class="hsearch"><span class="hs-ic">${IC.search}</span><input type="search" data-hsearch placeholder="단어 찾기 (영어·한글, 예: 빈맥, tachy)" value="${esc(A.hq || '')}" autocomplete="off"><div id="hsres">${hsearchHTML()}</div></div>
   ${todayBox}
-  ${cards ? `<h2 class="sec-h" style="margin-top:4px">다른 단어 목록 <small>· 누르면 오늘 공부할 목록이 바뀌어요 (하던 곳은 따로 기억)</small></h2>
+  ${cards ? `<h2 class="sec-h" style="margin-top:4px">다른 단어장 <small>· 고르면 오늘 공부할 단어장이 바뀌어요. 하던 곳은 따로 기억해요.</small></h2>
   <ul class="plist">${cards}</ul>` : ''}
-  <div class="padd">${A.settings.syl && sylUnits(A.settings.syl.scope).length ? '' : '<button class="btn" data-act="planpick" data-arg="new-syl">🏫 학교 수업 순서 만들기</button>'}<button class="btn" data-act="planpick" data-arg="new-my">✏️ 내 단어 목록 만들기</button></div>
+  <div class="padd">${A.settings.syl && sylUnits(A.settings.syl.scope).length ? '' : '<button class="btn" data-act="planpick" data-arg="new-syl">🏫 학교 수업 단어장 만들기</button>'}<button class="btn" data-act="planpick" data-arg="new-my">✏️ 내 단어장 만들기</button></div>
   <section class="panel"><div class="row-between"><b>이번 주</b><span class="sub">${st ? `${st}일째 이어서 하는 중` : '오늘부터 시작해요'}</span></div><div class="week">${week}</div></section>`;
 }
 
@@ -449,7 +450,7 @@ function viewSettingsPage() {
   return `<header class="top"><h1>설정</h1><button class="btn small" data-act="home">닫기</button></header>${viewSettings()}${viewBackup()}
   <section class="panel"><h2>처음부터 다시 정하기</h2><p class="note">처음 시작 화면으로 돌아가서 공부 방법과 기간을 다시 골라요. 공부 기록·내 단어 목록·아주 중요 표시는 그대로 남아요.</p>
     <button class="btn" style="width:100%;margin-top:10px" data-act="restart">처음 화면으로 돌아가기</button></section>
-  <p class="foot">단어 ${IX.items.length}개 · 공부 기록 ${A.log.length}줄 · 이 기기: ${esc(A.settings.label)}</p>`;
+`;
 }
 
 // ───────── 홈 (다음부터 열면 바로 보이는 화면) ─────────
@@ -469,7 +470,7 @@ function viewPlan() {
   let hero;
   if (resume) {
     const left = A.sess.queue.length + (A.sess.finalsAdded ? 0 : A.sess.finals.length);
-    hero = A.sess.doneCards ? `<p class="big-line">하던 공부가 있어요</p><p class="sub">${A.sess.doneCards} / ${A.sess.total}장 봤어요 · 남은 카드 ${left}장</p>
+    hero = A.sess.doneCards ? `<p class="big-line">하던 공부가 있어요</p><p class="sub">${A.sess.total}장 중 ${A.sess.doneCards}장 봤어요</p>
       <button class="btn primary big" data-act="resume">이어서 하기</button>` : `<p class="big-line">오늘 할 일 ${A.sess.total}장이 준비돼 있어요</p>
       <button class="btn primary big" data-act="resume">오늘 공부 시작</button>
       <button class="btn ghost" data-act="drop">하던 것 그만두고 새로 시작</button>`;
@@ -522,7 +523,7 @@ function viewPlan() {
   }).join('');
 
   return `
-  <header class="top plan-top"><button class="back-btn" data-act="home" aria-label="단어 목록으로">${IC.back}<span>목록</span></button>
+  <header class="top plan-top"><button class="back-btn" data-act="home" aria-label="첫 화면으로">${IC.back}<span>처음으로</span></button>
     <div class="pt"><span class="sub">${def.icon} ${esc(def.kind)}</span><h1>${esc(def.name)}</h1></div>
     <button class="link" data-act="pace">기간·범위</button></header>
   <section class="hero">${hero}</section>
@@ -541,17 +542,17 @@ function courseCard(pr, pct, track) {
   const prev = paceInfo(IX, A.states, { pace: { mode: 'goal', start: today, end: endW }, scope: ap.scope });
   const doneN = pr.mastered + pr.long;
   return `<section class="panel course">
-    <div class="row-between"><h2>과정</h2><button class="link" data-act="pace">기간·범위</button></div>
+    <h2>과정</h2>
     <p class="cline">${esc(c.line)}</p>
     ${c.weeks ? `<div class="wkbar" aria-label="${c.weeks}주 중 ${c.weekNo}주째">${Array.from({ length: Math.min(c.weeks, 52) }, (_, i) => `<i class="${i + 1 < c.weekNo ? 'past' : i + 1 === c.weekNo ? 'now' : ''}"></i>`).join('')}</div>` : ''}
-    <div class="sumcard" style="margin-top:10px"><div><b>${c.startedPct}%</b><span>시작한 단어<br>${c.started}/${c.total}</span></div><div><b>${pct}%</b><span>익힘<br>${doneN}개</span></div><div><b>${c.info.perDay != null ? c.info.perDay + '개' : (ap.pace.cards || 50) + '장'}</b><span>${c.info.perDay != null ? '하루 새 단어' : '하루 장수'}<br>약 ${c.info.minutes}분</span></div></div>
+    <div class="sumcard" style="margin-top:10px"><div><b>${c.startedPct}%</b><span>본 단어<br>${c.started.toLocaleString('ko-KR')}/${c.total.toLocaleString('ko-KR')}</span></div><div><b>${pct}%</b><span>외운 단어<br>${doneN.toLocaleString('ko-KR')}개</span></div><div><b>${c.info.perDay != null ? c.info.perDay + '개' : (ap.pace.cards || 50) + '장'}</b><span>${c.info.perDay != null ? '하루 새 단어' : '하루 장수'}<br>약 ${c.info.minutes}분</span></div></div>
     ${track}
-    <p class="note" style="margin-top:8px">새 단어 ${pr.new} · 배우는 중 ${pr.learning} · 익힘 ${pr.mastered} · 오래 기억 ${pr.long}</p>
-    ${c.info.remaining ? `<details class="adjw"${A.adjW ? ' open' : ''}><summary>남은 단어 ${c.info.remaining}개를 몇 주에 끝낼지 바꾸기</summary>
+    <p class="note" style="margin-top:8px">안 본 단어 ${pr.new.toLocaleString('ko-KR')} · 배우는 중 ${pr.learning} · 익힘 ${pr.mastered} · 오래 기억 ${pr.long}</p>
+    ${c.info.remaining ? `<details class="adjw"${A.adjW ? ' open' : ''}><summary>남은 단어 ${c.info.remaining.toLocaleString('ko-KR')}개, 기간 바꾸기</summary>
       <div class="stepper"><button class="icon-btn" data-act="adjw" data-arg="${Math.max(1, w - 1)}" aria-label="1주 줄이기">−</button><b>${w}주</b><button class="icon-btn" data-act="adjw" data-arg="${Math.min(52, w + 1)}" aria-label="1주 늘리기">+</button></div>
       <p class="note">→ 하루 새 단어 <b>${prev.perDay}개</b> · 약 ${prev.minutes}분 · ${fmtDate(endW)}까지</p>
       <button class="btn primary" style="width:100%;margin-top:8px" data-act="adjwsave" data-arg="${w}">이렇게 바꾸기</button>
-      <p class="note" style="margin-top:6px">지금까지 공부한 기록은 그대로예요. 남은 단어만 새 기간에 나눠요.</p></details>` : '<p class="note">이 목록의 단어를 모두 시작했어요. 이제 복습으로 기억을 굳혀요.</p>'}
+      <p class="note" style="margin-top:6px">지금까지 공부한 기록은 그대로예요. 남은 단어만 새 기간에 나눠요.</p></details>` : '<p class="note">이 단어장의 단어를 다 봤어요. 이제 복습으로 기억을 굳혀요.</p>'}
   </section>`;
 }
 
@@ -569,13 +570,13 @@ function groupPanel() {
     const u = IX.units.find(z => z.id === uid);
     const st = fc.first.includes(uid) ? 'first' : fc.later.includes(uid) ? 'later' : '';
     const all = seen === ids.length;
-    return `<li class="${st}"><div class="gtop"><b>${esc(u.short)}</b><span class="sub">${seen}/${ids.length} 봄 · 익힘 ${done}</span></div>
+    return `<li class="${st}"><div class="gtop"><b>${esc(u.short)}</b><span class="sub">${seen}/${ids.length} 봄 · 외움 ${done}</span></div>
       <div class="gbar"><i style="width:${Math.round((done / ids.length) * 100)}%"></i><i class="seen" style="width:${Math.round(((seen - done) / ids.length) * 100)}%"></i></div>
-      <div class="gbtn">${all ? '<span class="gdone">✓ 다 봤어요</span>' : `<button class="chip${st === 'first' ? ' on' : ''}" data-act="gfocus" data-arg="first:${uid}">${st === 'first' ? `먼저 ${fc.first.indexOf(uid) + 1}` : '먼저 하기'}</button><button class="chip${st === 'later' ? ' on' : ''}" data-act="gfocus" data-arg="later:${uid}">나중에</button>`}
-        <button class="chip" data-act="gnow" data-arg="${uid}">지금 이 그룹</button></div></li>`;
+      <div class="gbtn">${all ? '<span class="gdone">✓ 다 봤어요</span>' : `<button class="chip${st === 'first' ? ' on' : ''}" data-act="gfocus" data-arg="first:${uid}">${st === 'first' ? `먼저 ${fc.first.indexOf(uid) + 1}번째` : '이 단원 먼저'}</button><button class="chip${st === 'later' ? ' on' : ''}" data-act="gfocus" data-arg="later:${uid}">${st === 'later' ? '뒤로 미룸' : '뒤로 미루기'}</button>`}
+        <button class="chip" data-act="gnow" data-arg="${uid}">지금 공부</button></div></li>`;
   }).join('');
-  return `<section class="panel"><div class="row-between"><h2>그룹별 (계통)</h2>${fc.first.length || fc.later.length ? '<button class="link" data-act="gclear">원래 순서로</button>' : ''}</div>
-    <p class="note">"먼저 하기"를 누른 그룹부터 새 단어가 나와요. 이미 본 단어는 건너뛰고, 다 하면 다음 그룹으로 넘어가요. "나중에"는 맨 뒤로 미뤄요.</p>
+  return `<section class="panel"><div class="row-between"><h2>단원별</h2>${fc.first.length || fc.later.length ? '<button class="link" data-act="gclear">원래 순서로</button>' : ''}</div>
+    <p class="note">"이 단원 먼저"를 누르면 그 단원부터 새 단어가 나와요. 본 단어는 건너뛰고, 다 보면 다음 단원으로 넘어가요. "뒤로 미루기"는 맨 뒤로 보내요.</p>
     <ul class="glist">${rows}</ul></section>`;
 }
 
@@ -645,10 +646,10 @@ function viewPace() {
   return `${A.first ? stepTop(2, 'toway') : '<header class="top"><h1>기간·범위</h1><button class="btn small" data-act="paceclose">닫기</button></header>'}
   ${A.first ? '<h1 class="hero-title" style="font-size:26px;margin-bottom:14px">언제까지 끝낼까요?</h1>' : ''}
   ${isMy && curL() ? `<section class="panel order-line"><div class="row-between"><b>공부 순서: ${orderName(curL())}</b><button class="link" data-act="pick" data-arg="pace">바꾸기</button></div>
-    <p class="note" style="margin-top:4px">"${esc(myName())}" 목록의 순서예요. 단어 고르는 화면 아래에서 바꿔요.</p></section>`
+    <p class="note" style="margin-top:4px">"${esc(myName())}" 단어장의 순서예요. 단어 고르는 화면 아래에서 바꿔요.</p></section>`
   : A.first ? '' : `<details class="panel order-line"><summary><b>공부 순서: 추천 순서</b></summary>
     <p class="sub" style="margin-top:6px">조각 → 인체 → 계통별(근골격 → 심혈관 → … → 피부) → 약어</p>
-    <p class="note" style="margin-top:4px">의학용어 수업에서 가장 흔한 순서예요. 교재 순서로 하려면 "내 단어" 목록을 만들 때 순서를 고르세요.</p></details>`}
+    <p class="note" style="margin-top:4px">의학용어 수업에서 가장 흔한 순서예요. 교재 순서로 하려면 "학교 수업 단어장"을 만드세요.</p></details>`}
   ${A.first ? `<section class="panel chosen-way"><div class="row-between"><span><span class="sub">공부 방법</span><br><b>${mode === 'rec' ? '✨ 추천대로' : mode === 'syl' ? '🏫 학교 수업 순서' : '✏️ 내가 고른 단어'}</b> · ${sel.total}개</span><button class="link" data-act="toway">바꾸기</button></div>
     ${mode === 'rec' ? `<details class="scope-more" data-scopemore${A.draft.scopeOpen ? ' open' : ''}><summary>중요도·단원 고르기 (지금: ${esc(scopeLabel(d.scope))})</summary><div class="opts" style="margin-top:8px">${starOpts}</div>
       <details class="units"${units ? ' open' : ''}><summary>단원 고르기${units ? ` (${units.size}개)` : ' (전체)'}</summary><div class="chips" style="margin-top:10px">${unitChips}</div></details></details>`
@@ -659,9 +660,9 @@ function viewPace() {
     <div class="seg seg3" style="margin:8px 0 10px">
       <button class="${mode === 'rec' ? 'on' : ''}" data-act="dscopemode" data-arg="rec"><b>추천</b><small>중요도·단원</small></button>
       <button class="${mode === 'syl' ? 'on' : ''}" data-act="dscopemode" data-arg="syl"><b>학교 수업</b><small>목차대로</small></button>
-      <button class="${mode === 'my' ? 'on' : ''}" data-act="dscopemode" data-arg="my"><b>내 단어</b><small>목록 ${(A.settings.lists || []).length}개</small></button>
+      <button class="${mode === 'my' ? 'on' : ''}" data-act="dscopemode" data-arg="my"><b>내 단어장</b><small>${(A.settings.lists || []).length}개</small></button>
     </div>
-    ${mode === 'my' ? `<p class="note">고른 목록의 단어만 공부해요. 목록마다 기간을 따로 정해요. 단어에 필요한 조각은 함께 들어가요.</p>
+    ${mode === 'my' ? `<p class="note">고른 단어장의 단어만 공부해요. 단어장마다 기간을 따로 정해요. 단어에 필요한 조각은 함께 들어가요.</p>
       ${listBar()}
       <button class="btn" style="width:100%;margin-top:8px" data-act="pick" data-arg="pace">${myIds().length ? `"${esc(myName())}" 단어 고치기` : '단어 고르기'}</button>`
     : mode === 'syl' ? `<p class="note">강의계획서·교재 목차 순서대로 단원을 공부해요.</p>
@@ -684,11 +685,11 @@ function viewPace() {
 // 현황 맨 위: 단어 묶음(전체 · 추천 계획 범위 · 내 단어 목록마다)별 현황
 function statSets() {
   const out = [{ id: 'all', name: '전체 단어', ids: IX.items.map(x => x.id) },
-    { id: 'rec', name: `추천 계획 · ${scopeLabel(A.settings.scope)}`, ids: [...scopeSet(IX, A.settings.scope)] }];
+    { id: 'rec', name: `추천 단어장 · ${scopeLabel(A.settings.scope)}`, ids: [...scopeSet(IX, A.settings.scope)] }];
   for (const l of A.settings.lists || []) {
     const set = new Set(l.ids);
     for (const id of l.ids) { const x = IX.get(id); if (x && x.k === 'word') for (const f of x.parts || []) if (IX.get('p:' + f)) set.add('p:' + f); }
-    out.push({ id: l.id, name: `내 단어 · ${l.name}`, ids: [...set], list: l });
+    out.push({ id: l.id, name: `내 단어장 · ${l.name}`, ids: [...set], list: l });
   }
   return out;
 }
@@ -703,10 +704,10 @@ function setPanel() {
   const seenN = r.last[1] + r.last[2] + r.last[3] + r.last[4];
   const maxA = Math.max(1, r.last[1], r.last[2], r.last[3], r.last[4]);
   return `<section class="panel">
-    <h2>무엇을 기준으로 볼까요?</h2>
+    <h2>단어장별 현황</h2>
     <div class="chips" style="margin:6px 0 12px">${sets.map(z => `<button class="chip${z.id === cur.id ? ' on' : ''}" data-act="statset" data-arg="${z.id}">${esc(z.name)}</button>`).join('')}</div>
     <div class="sumcard">
-      <div><b>${r.pct}%</b><span>익힘 이상</span></div>
+      <div><b>${r.pct}%</b><span>외운 단어</span></div>
       <div><b>${r.started}</b><span>공부한 단어 / ${r.total}</span></div>
       <div><b>${r.today}</b><span>오늘 본 단어</span></div>
     </div>
@@ -716,7 +717,7 @@ function setPanel() {
     ${seenN ? `<div class="ansbars">${ANS.filter(([b]) => b).map(([b, l, c]) => `<div class="ab"><span>${l}</span><div class="abar"><i class="${c}" style="width:${Math.round((r.last[b] / maxA) * 100)}%"></i></div><b>${r.last[b]}</b></div>`).join('')}</div>
     <p class="note" style="margin-top:6px">본 단어 ${seenN}개 중 · 아직 안 본 단어 ${r.last[0]}개</p>` : '<p class="note">아직 이 묶음에서 공부한 단어가 없어요.</p>'}
     <div class="meter-row" style="margin-top:12px"><span>최근 30일 복습 정답률</span><b>${r.actual == null ? '–' : Math.round(r.actual * 100) + '%'}</b></div>
-    <div class="meter-row"><span>지금 기억하고 있을 확률</span><b>${r.recall == null ? '–' : Math.round(r.recall * 100) + '%'}</b></div>
+    ${r.started >= 20 ? `<div class="meter-row"><span>지금 기억하고 있을 확률</span><b>${Math.round(r.recall * 100)}%</b></div>` : '<p class="note">20개 넘게 공부하면 기억 확률도 보여 드려요.</p>'}
     <div class="mk-actions" style="margin-top:12px">
       <button class="btn" data-act="statstudy" data-arg="${cur.id}">모름·헷갈림 다시 공부</button>
       <button class="btn" data-act="statquiz" data-arg="${cur.id}">이 묶음으로 시험</button>
@@ -756,7 +757,7 @@ function viewHistory() {
   const qz = (A.quizzes || []).filter(q => dayKey(q.t) === sel);
   const hm = t => new Date(t).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false });
   const dayBox = ds ? `<div class="sumcard"><div><b>${ds.cards}</b><span>본 카드</span></div><div><b>${ds.fresh}</b><span>새 단어</span></div><div><b>${Math.max(1, Math.round(ds.ms / 60000))}분</b><span>공부 시간</span></div></div>
-    <p class="note" style="margin-top:8px">처음 본 답 정답률 ${pc(ds.firstN ? ds.firstOk / ds.firstN : null)} · 모름 ${ds.ans[1]} · 헷갈림 ${ds.ans[2]} · 알 것 같음 ${ds.ans[3]} · 확실히 앎 ${ds.ans[4]}</p>
+    <p class="note" style="margin-top:8px">처음에 맞힌 비율 ${pc(ds.firstN ? ds.firstOk / ds.firstN : null)} · 모름 ${ds.ans[1]} · 헷갈림 ${ds.ans[2]} · 알 것 같음 ${ds.ans[3]} · 확실히 앎 ${ds.ans[4]}</p>
     ${sess.length ? `<ul class="sesslist">${sess.map(h => `<li><span class="tm">${hm(h.t0)}~${hm(h.t1)}</span><b>${esc(h.label)}</b><span>${h.n}장${h.fresh ? ` · 새 ${h.fresh}` : ''} · 정답 ${pc(h.first ? h.ok / h.first : null)}</span></li>`).join('')}</ul>` : '<p class="note">이 날 무엇을 공부했는지는 기록이 없어요 (예전 기록이거나 다른 기기).</p>'}`
     : '<p class="note">이 날은 공부하지 않았어요.</p>';
   const qBox = qz.length ? `<ul class="sesslist">${qz.map(q => `<li><span class="tm">${hm(q.t)}</span><b>시험 · ${q.mode === 'exam' ? '실전' : '연습'} ${q.n}문항</b><span>${q.pct}점</span></li>`).join('')}</ul>` : '';
@@ -802,7 +803,7 @@ function viewStats() {
     <h2>얼마나 공부했나</h2>
     <div class="sumcard">
       <div><b>${o.started}</b><span>공부한 단어</span></div>
-      <div><b>${done(o.all)}</b><span>익힘 이상</span></div>
+      <div><b>${done(o.all)}</b><span>외운 단어</span></div>
       <div><b>${o.studyDays}일</b><span>공부한 날</span></div>
     </div>
     ${bar(o.all)}
@@ -834,7 +835,7 @@ function viewStats() {
     ${o.byUnit.map(g => `<div class="row-stat"><div class="row-between"><span>${g.unit.n}. ${esc(g.unit.short)}</span><span class="sub">${done(g)} / ${g.total}</span></div>${bar(g)}</div>`).join('')}
   </section>
   ${(A.quizzes || []).length ? `<section class="panel"><h2>시험 기록</h2><ul class="qlog">${A.quizzes.slice(-5).reverse().map(r => `<li><span>${new Date(r.t).toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' })} · ${r.mode === 'exam' ? '실전' : '연습'} ${r.n}문항</span><b>${r.pct}점</b></li>`).join('')}</ul></section>` : ''}
-  ${o.sticky.length ? `<section class="panel"><h2>끈질긴 단어</h2><p class="note">여러 번 틀린 단어예요. 내 암기법을 만들어 보세요.</p>
+  ${o.sticky.length ? `<section class="panel"><h2>자꾸 틀리는 단어</h2><p class="note">여러 번 틀린 단어예요. 내 암기법을 만들어 보세요.</p>
     <ul class="fam" style="margin-top:6px">${o.sticky.slice(0, 12).map(id => { const w = IX.get(id); return w ? `<li><b lang="en">${esc(w.t)}</b> ${esc(w.ko[0])}</li>` : ''; }).join('')}</ul></section>` : ''}
   <div class="bottom-cta"><button class="btn primary big" data-act="home">닫기</button></div>`;
 }
@@ -862,7 +863,6 @@ function viewSettings() {
   const s = A.settings;
   const chip = (act, val, cur, label) => `<button class="chip${cur ? ' on' : ''}" data-act="${act}" data-arg="${val}">${label}</button>`;
   return `<section class="panel sheet">
-    <h2>설정</h2>
     <div class="set"><span>색</span><div>
       ${THEMES.map(x => `<button class="sw${x.id === s.theme ? ' on' : ''}" aria-label="${x.name}" data-act="theme" data-arg="${x.id}"><span class="ring"><span class="dot" style="background:${x.pri}"></span></span>${x.name}</button>`).join('')}
     </div></div>
@@ -873,7 +873,7 @@ function viewSettings() {
     </div><p class="note">높일수록 더 자주 복습해요.</p></div>
     <div class="set"><span>철자 카드</span><div>${chip('spell', 'off', spellMode() === 'off', '끄기')}${chip('spell', 'word', spellMode() === 'word', '단어만')}${chip('spell', 'wordabbr', spellMode() === 'wordabbr', '단어+약어')}${chip('spell', 'all', spellMode() === 'all', '조각까지')}</div>
       <p class="note">익힘이 된 단어는 한글을 보고 영어를 직접 쓰는 카드가 복습에 섞여 나와요 (하루 새 철자 카드 10개까지).</p></div>
-    <div class="set"><span>RN 영어 설명</span><div>${chip('rn', 1, s.rn, '켜기')}${chip('rn', 0, !s.rn, '끄기')}</div></div>
+    <div class="set"><span>영어 설명 (NCLEX 대비)</span><div>${chip('rn', 1, s.rn, '켜기')}${chip('rn', 0, !s.rn, '끄기')}</div></div>
     <div class="set"><span>발음 속도</span><div>${chip('rate', 0.7, s.rate === 0.7, '느리게')}${chip('rate', 0.85, s.rate === 0.85, '보통')}${chip('rate', 1, s.rate === 1, '빠르게')}</div></div>
     <div class="set"><span>이 기기 이름</span><div>${['폰', '태블릿', '컴퓨터', '노트북'].map(x => chip('label', x, s.label === x, x)).join('')}</div>
       <p class="note">백업 파일 이름에 붙어요.</p></div>
@@ -904,7 +904,7 @@ function viewStudy() {
     <div class="face-tools">
       <button class="icon-btn" data-act="say" title="발음 듣기 (P)" aria-label="발음 듣기">${IC.sound}</button>
       ${A.phase === 'front' ? `<button class="icon-btn" data-act="hint" title="조각 힌트 (H)">${A.hint ? hint : '조각 힌트'}</button>` : ''}
-      <button class="icon-btn flagbtn${isFlag(x.id) ? ' on' : ''}" data-act="flag" data-arg="${esc(x.id)}" title="아주 중요 (F)">${isFlag(x.id) ? '★ 아주 중요' : '☆ 중요 체크'}</button>
+      <button class="icon-btn flagbtn${isFlag(x.id) ? ' on' : ''}" data-act="flag" data-arg="${esc(x.id)}" title="중요 표시 (F)">${isFlag(x.id) ? '★ 중요' : '☆ 중요'}</button>
     </div>
     ${A.phase === 'front' && isNew ? '<p class="note center">처음 보는 단어예요. 조각으로 뜻을 짐작해 보고 고르세요.</p>' : ''}
   </section>`;
@@ -930,7 +930,7 @@ function viewStudy() {
     </div>`;
   } else {
     side = `<section class="answer explain">${answerBlock(x, true)}${explainBlock(x)}</section>`;
-    actions = `<div class="checks one"><button class="btn primary big" data-act="next">알겠어요 <small>Space</small></button></div>`;
+    actions = `<div class="checks one"><button class="btn primary big" data-act="next">다음 <small>Space</small></button></div>`;
   }
   return `<div class="studybar"><div class="progress"><i style="width:${pct}%"></i></div>
     <div class="studyhead"><span>${Math.min(s.doneCards + (cur.c in s.first ? 0 : 1), s.total)} / ${s.total}</span>${s.label ? `<span class="studying" title="지금 공부 중">${esc(s.label)}</span>` : ''}
@@ -1050,7 +1050,7 @@ function explainBlock(x) {
 }
 
 function groupBlock(x) {
-  return (IX.groupsOf.get(x.id) || []).map(g => `<div class="blk group"><h3>헷갈리는 묶음 · ${esc(g.t)}</h3>
+  return (IX.groupsOf.get(x.id) || []).map(g => `<div class="blk group"><h3>헷갈리는 짝 · ${esc(g.t)}</h3>
     <ul class="gtable">${g.ids.map(id => { const y = IX.get(id); return `<li class="${id === x.id ? 'me' : ''}"><b lang="en">${esc(y.t)}</b><span>${esc(y.ko.join(' · '))}</span></li>`; }).join('')}</ul>
     ${g.tip ? `<p class="note">${esc(g.tip)}</p>` : ''}</div>`).join('');
 }
@@ -1060,7 +1060,7 @@ function cardHTML(x) {
   return `<section class="face" style="min-height:0;padding:16px 18px">
       <div class="meta">${KIND[x.k]} · ${stars(x.star)} · ${esc(IX.unitOf.get(x.id).short)}</div>
       <div class="word" lang="en" style="font-size:32px">${esc(x.t)}</div>
-      <div class="face-tools"><button class="icon-btn" data-act="sayid" data-arg="${esc(x.id)}" aria-label="발음 듣기">${IC.sound}</button><button class="icon-btn flagbtn${isFlag(x.id) ? ' on' : ''}" data-act="flag" data-arg="${esc(x.id)}" title="아주 중요 (F)">${isFlag(x.id) ? '★ 아주 중요' : '☆ 중요 체크'}</button></div>
+      <div class="face-tools"><button class="icon-btn" data-act="sayid" data-arg="${esc(x.id)}" aria-label="발음 듣기">${IC.sound}</button><button class="icon-btn flagbtn${isFlag(x.id) ? ' on' : ''}" data-act="flag" data-arg="${esc(x.id)}" title="중요 표시 (F)">${isFlag(x.id) ? '★ 중요' : '☆ 중요'}</button></div>
     </section>
     <section class="answer explain">${answerBlock(x, true)}${explainBlock(x)}</section>`;
 }
@@ -1086,9 +1086,9 @@ function viewEnd() {
   <section class="panel"><p>내일 예정 복습 <b>${s.tomorrow}</b>장</p>
     ${s.mastered.length ? `<p class="sub">새로 익힌 단어: ${s.mastered.slice(0, 12).map(id => esc(IX.get(id).t)).join(', ')}${s.mastered.length > 12 ? ' …' : ''}</p>` : ''}
   </section>
-  ${sticky.length ? `<section class="panel"><h2>끈질긴 단어</h2><p class="sub">여러 번 틀린 단어예요. 내 암기법을 만들어 보거나 조각부터 다시 봐요.</p>
+  ${sticky.length ? `<section class="panel"><h2>자꾸 틀리는 단어</h2><p class="sub">여러 번 틀린 단어예요. 내 암기법을 만들어 보거나 조각부터 다시 봐요.</p>
     <ul class="fam">${sticky.map(w => `<li><b lang="en">${esc(w.t)}</b> ${esc(w.ko[0])}</li>`).join('')}</ul>
-    <button class="btn" data-act="sticky">끈질긴 단어 다시 보기</button></section>` : ''}
+    <button class="btn" data-act="sticky">자꾸 틀리는 단어 다시 보기</button></section>` : ''}
   <section class="panel endquiz"><h2>오늘 단어로 문제 풀기</h2><p class="note">방금 공부한 단어로 확인해 봐요. 문제 종류는 다음 화면에서 고를 수 있어요.</p>
     <div class="pk-two" style="margin-top:10px"><button class="btn" data-act="quizTodaySpell">철자 쓰기 연습</button><button class="btn primary" data-act="quizToday">오늘 단어 시험</button></div></section>
   <div class="checks one"><button class="btn big" data-act="toplan">끝내기</button></div>`;
@@ -1114,13 +1114,13 @@ async function switchSess() {
 }
 
 // 지금 무엇을 공부하는지 카드 위에 보여 줄 이름
-function planLabel() { const ap = AP(); return ap.track === 'my' ? `내 단어 · ${myName()}` : ap.track === 'syl' ? `학교 수업 · ${sylUnits(ap.scope).length}개 단원` : `추천 · ${scopeLabel(ap.scope)}`; }
+function planLabel() { const ap = AP(); return ap.track === 'my' ? `내 단어장 · ${myName()}` : ap.track === 'syl' ? `학교 수업 · ${sylUnits(ap.scope).length}개 단원` : `추천 · ${scopeLabel(ap.scope)}`; }
 function startSession(p, mode = 'daily', label) {
   if (A.view !== 'study' && A.view !== 'end') A.returnTo = A.view;
   if (A.sess && A.sess.key && liveSess(A.sess)) A.sessions[A.sess.key] = A.sess; // 하던 것은 넣어 둔다
   A.sess = newSession(p, { now: Date.now(), mode });
   if (A.sess) A.sess.key = mode === 'daily' || mode === 'quick' ? trackKey() + (mode === 'quick' ? ':quick' : '') : 'other';
-  if (A.sess) A.sess.label = label || (mode === 'quick' ? `3분 복습 · ${planLabel()}` : mode === 'sticky' ? '끈질긴 단어 다시 보기' : mode === 'pick' ? '골라서 공부' : planLabel());
+  if (A.sess) A.sess.label = label || (mode === 'quick' ? `3분 복습 · ${planLabel()}` : mode === 'sticky' ? '자꾸 틀리는 단어 다시 보기' : mode === 'pick' ? '골라서 공부' : planLabel());
   if (!A.sess.total) { toast('지금 볼 카드가 없어요'); A.sess = null; return; }
   A.view = 'study';
   A.phase = 'front';
@@ -1308,7 +1308,7 @@ const ACT = {
   dscope: k => { A.draft.scope = normScope(k); render(); },
   lsel: async id => { draftKeepMy(); A.settings.curList = id; syncMy(); draftLoadMy(); await saveSettings(); if (A.view === 'home') await switchSess(); render(); },
   lnew: async () => {
-    const name = (prompt('새 목록 이름 (예: 중간고사, 교수님 목록)', '') || '').trim();
+    const name = (prompt('새 단어장 이름 (예: 중간고사, 교수님 단어)', '') || '').trim();
     draftKeepMy();
     newList(name.slice(0, 20) || undefined);
     draftLoadMy();
@@ -1318,17 +1318,17 @@ const ACT = {
   },
   lren: async () => {
     const l = curL(); if (!l) return;
-    const name = (prompt('목록 이름', l.name) || '').trim();
+    const name = (prompt('단어장 이름', l.name) || '').trim();
     if (!name) return;
     l.name = name.slice(0, 20); await saveSettings(); render();
   },
   ldel: async () => {
     const l = curL(); if (!l) return;
-    if (!confirm(`"${l.name}" 목록을 지울까요? 공부 기록은 그대로 남아요.`)) return;
+    if (!confirm(`"${l.name}" 단어장을 지울까요? 공부 기록은 그대로 남아요.`)) return;
     A.settings.lists = A.settings.lists.filter(z => z.id !== l.id);
     A.settings.curList = A.settings.lists[0] ? A.settings.lists[0].id : '';
     if (!A.settings.lists.length && A.settings.track === 'my') A.settings.track = 'rec';
-    syncMy(); await saveSettings(); render(); toast('목록을 지웠어요');
+    syncMy(); await saveSettings(); render(); toast('단어장을 지웠어요');
   },
   track: async t => { if (A.settings.track === t) return; A.settings.track = t; await saveSettings(); await switchSess(); render(); toast(`${planLabel()}로 공부해요${A.sess ? ' · 하던 곳부터' : ''}`); },
   // 홈 "지금 공부 ▾": 계획 고르기 (추천 · 강의 순서 · 내 단어 목록마다)
@@ -1336,7 +1336,7 @@ const ACT = {
     A.planSheet = false;
     if (arg === 'new-syl') { ACT.pace(); ACT.dscopemode('syl'); return; }
     if (arg === 'new-my') {
-      const name = (prompt('새 목록 이름 (예: 중간고사, 교수님 목록)', '') || '').trim();
+      const name = (prompt('새 단어장 이름 (예: 중간고사, 교수님 단어)', '') || '').trim();
       ACT.pace(); A.draft.scope = 'my'; A.draft.pace = fixPace({ ...DEFAULT_MY_PACE }); draftKeepMy(); newList(name.slice(0, 20) || undefined); draftLoadMy(); await saveSettings(); ACT.pick('pace'); return;
     }
     if (arg.startsWith('L:')) { A.settings.curList = arg.slice(2); A.settings.track = 'my'; syncMy(); }
@@ -1369,7 +1369,7 @@ const ACT = {
     f[other] = f[other].filter(z => z !== uid);
     f[kind] = f[kind].includes(uid) ? f[kind].filter(z => z !== uid) : [...f[kind], uid];
     await saveSettings(); render();
-    toast(kind === 'first' ? (f.first.includes(uid) ? '이 그룹부터 새 단어가 나와요' : '먼저 하기를 뺐어요') : (f.later.includes(uid) ? '이 그룹은 맨 뒤로 미뤘어요' : '나중에를 뺐어요'));
+    toast(kind === 'first' ? (f.first.includes(uid) ? '이 단원부터 새 단어가 나와요' : '먼저 하기를 뺐어요') : (f.later.includes(uid) ? '이 단원은 맨 뒤로 미뤘어요' : '나중에를 뺐어요'));
   },
   adjw: n => { A.adjW = Number(n); render(); },
   // 남은 단어를 n주에: 오늘부터 새 기간 (계획마다)
@@ -1389,7 +1389,7 @@ const ACT = {
     const fresh = pickNew(IX, A.states, RULES.batch * 2, { order: order.filter(id => set.has(id)) }).filter(id => IX.get(id).unit === uid || IX.get(id).k === 'part');
     const p = plan();
     const reviews = p.reviews.filter(id => IX.get(id).unit === uid);
-    if (!fresh.length && !reviews.length) { toast('이 그룹은 오늘 볼 카드가 없어요. 다 봤거나 복습할 때가 아니에요.'); return; }
+    if (!fresh.length && !reviews.length) { toast('이 단원은 오늘 볼 카드가 없어요. 다 봤거나 아직 복습할 때가 아니에요.'); return; }
     startSession({ day: dayKey(Date.now()), reviews, fresh }, 'pick', `${planLabel()} · ${IX.units.find(u => u.id === uid).short}만`);
   },
   adj: async v => { A.settings.todayAdj = { day: dayKey(Date.now()), n: Number(v) }; await saveSettings(); render(); },
@@ -1537,9 +1537,9 @@ const QRANGES = [
   { g: '시험 기록', k: 'qu', name: '시험에서 헷갈렸어요' },
   { g: '철자', k: 'ws', name: '철자에서 틀림', d: '시험 철자 쓰기 + 철자 카드' },
   { g: '철자', k: 'hard', name: '철자가 까다로운 단어', d: 'rrh·phth·pn 같은 단어' },
-  { g: '표시·목록', k: 'flag', name: '★ 아주 중요' },
-  { g: '표시·목록', k: 'my', name: '내 단어' },
-  { g: '표시·목록', k: 'plan', name: '공부 계획 범위' },
+  { g: '표시·단어장', k: 'flag', name: '★ 중요' },
+  { g: '표시·단어장', k: 'my', name: '내 단어장' },
+  { g: '표시·단어장', k: 'plan', name: '지금 단어장 전체' },
   { g: '직접', k: 'units', name: '단원 고르기' },
   { g: '직접', k: 'ids', name: '직접 고른 단어' },
 ];
@@ -1884,11 +1884,11 @@ function viewPick() {
   const grpSel = f.conf === 'grp' ? `<select class="pk-grp" data-pkgrp><option value="-1">묶음을 고르세요</option>${grps.map(g => `<option value="${g.i}"${f.grp === g.i ? ' selected' : ''}>${esc(g.t)} (${g.n})</option>`).join('')}</select>` : '';
   const matesN = cnt(4, { mates: true });
   const step = (no, title, body, hint = '') => `<section class="panel fstep"><div class="row-between"><h2><span class="sn">${no}</span>${title}</h2><span class="left">남은 <b>${n(no)}</b>개</span></div>${hint}${body}</section>`;
-  const title = k.quiz ? '골라서 시험' : k.study ? '골라서 공부' : `"${esc(myName())}" 단어 고르기`;
+  const title = k.quiz ? '골라서 시험' : k.study ? '골라서 공부' : `${esc(myName())} · 단어 고르기`;
   const btns = k.study
     ? `<div class="pk-two"><button class="btn" data-act="pkaddmy">내 단어에 더하기</button>${k.quiz ? '<button class="btn primary big" data-act="pkquiz">이 단어로 시험</button>' : '<button class="btn primary big" data-act="pkstudy">지금 공부</button>'}</div>`
-    : listMode ? `<div class="pk-two"><button class="btn" data-act="pksave" data-arg="add">목록에 더하기</button><button class="btn primary big" data-act="pksave" data-arg="replace">이걸로 바꾸기</button></div>`
-    : `<button class="btn primary big" data-act="pksave" data-arg="replace">이 단어로 목록 만들기</button>`;
+    : listMode ? `<div class="pk-two"><button class="btn" data-act="pksave" data-arg="add">단어장에 더하기</button><button class="btn primary big" data-act="pksave" data-arg="replace">이걸로 바꾸기</button></div>`
+    : `<button class="btn primary big" data-act="pksave" data-arg="replace">이 단어로 단어장 만들기</button>`;
   return `<header class="top"><h1>${title}</h1><button class="btn small" data-act="pkcancel">취소</button></header>
   <div class="fbar" aria-label="단계마다 남은 단어">${[0, 1, 2, 3, 4, 5].map(i => `<span><b>${n(i)}</b><small>${i ? STEPS[i - 1].name : '전체'}</small></span>`).join('<i>›</i>')}</div>
   <p class="note" style="margin:2px 2px 10px">위에서부터 차례로 고르면 단어가 좁혀져요. 안 고른 단계는 건너뛰어요.${listMode ? ` 지금 "${esc(myName())}"에는 ${myIds().length}개가 있어요.` : ''}</p>
@@ -1896,12 +1896,12 @@ function viewPick() {
   ${step(2, '중요도', `<div class="chips">${multi(1, 'star', [['3', '★★★'], ['2', '★★'], ['1', '★']])}</div>`, '<p class="note">여러 개 고르기 · 안 고르면 전부</p>')}
   ${step(3, '종류', `<div class="chips">${multi(2, 'kind', [['p', '조각'], ['w', '단어'], ['a', '약어']])}</div>`, '<p class="note">여러 개 고르기 · 안 고르면 전부</p>')}
   ${step(4, '계통 (단원)', `<div class="chips">${unitChips}</div>`, '<p class="note">여러 개 고르기 · 안 고르면 전부</p>')}
-  ${step(5, '헷갈리는 용어', `<div class="opts">${confOpts}</div>${grpSel}
+  ${step(5, '헷갈리는 짝', `<div class="opts">${confOpts}</div>${grpSel}
     <label class="toggle-row" style="margin-top:8px"><span><b style="font-size:14.5px">헷갈리는 짝도 같이 넣기</b><br><span class="sub">남은 단어와 헷갈리기 쉬운 용어를 함께 넣어 비교하며 외워요 (${matesN}개가 돼요)</span></span><input type="checkbox" data-pkmates${f.mates ? ' checked' : ''}></label>`,
     '<p class="note">지금 남은 단어 중에서, 앱이 모아 둔 서로 헷갈리기 쉬운 용어(예: 피가 나오는 곳)만 남겨요.</p>')}
   <section class="panel"><div class="row-between"><h2>결과</h2><span class="left">골라 둔 <b id="pkn">${pkSelected().size}</b>개</span></div>
     <input class="pk-search" type="search" placeholder="결과 안에서 찾기 (예: cardi, 심장)" value="${esc(k.q || '')}" data-pksearch style="margin-top:8px">
-    <details class="pk-paste"><summary>단어 목록 붙여넣기 (교수님 목록 등)</summary>
+    <details class="pk-paste"><summary>단어 붙여넣기 (교수님 단어 등)</summary>
       <textarea rows="4" data-pkpaste placeholder="영어나 한글 단어를 줄바꿈이나 쉼표로 나눠 붙여 넣으세요"></textarea>
       <button class="btn small" data-act="pkpaste">찾아서 넣기</button>
       ${k.pasteMsg ? `<p class="note">${k.pasteMsg}</p>` : ''}
@@ -1915,8 +1915,8 @@ function viewPick() {
 function orderPanel(k) {
   const o = k.order || { mode: 'rec' };
   const unitsOrd = o.units || IX.units.map(u => u.id);
-  return `<section class="panel"><h2>이 목록의 공부 순서</h2>
-    <p class="note">교재 순서로 하려면 교재 목차대로 단원 순서를 바꾸거나, 교재·교수님 목록을 순서대로 붙여 넣고 "넣은 순서"를 고르세요.</p>
+  return `<section class="panel"><h2>이 단어장의 공부 순서</h2>
+    <p class="note">교재 순서로 하려면 단원 순서를 교재 목차대로 바꾸거나, 교재·교수님 단어를 순서대로 붙여 넣고 "넣은 순서"를 고르세요.</p>
     <div class="opts" style="margin-top:8px">${LIST_ORDERS.map(([m, l, d]) => `<button class="opt${o.mode === m ? ' on' : ''}" data-act="pkord" data-arg="${m}"><span class="dot"></span><span class="grow"><b>${l}</b><small>${d}</small></span></button>`).join('')}</div>
     ${o.mode === 'units' ? `<ol class="unit-order">${unitsOrd.map((id, i) => { const u = IX.units.find(z => z.id === id); return `<li><span>${i + 1}. ${esc(u.short)}</span>
       <button class="icon-btn" data-act="pkup" data-arg="${i}" aria-label="위로"${i ? '' : ' disabled'}>↑</button><button class="icon-btn" data-act="pkdown" data-arg="${i}" aria-label="아래로"${i < unitsOrd.length - 1 ? '' : ' disabled'}>↓</button></li>`; }).join('')}</ol>` : ''}
@@ -2047,15 +2047,15 @@ document.addEventListener('toggle', e => {
 // 내가 표시(아주 중요·내 단어) · 공부할 때 누른 답 · 시험 결과 · 끈질긴 단어
 const isFlag = id => !!(A.flags[id] && A.flags[id].on);
 const COLS = [
-  { k: 'flag', g: '내가 표시', name: '아주 중요', icon: '★' },
-  { k: 'my', g: '내가 표시', name: '내 단어 목록' },
+  { k: 'flag', g: '내가 표시', name: '중요', icon: '★' },
+  { k: 'my', g: '내가 표시', name: '내 단어장' },
   { k: 'b1', g: '공부할 때 누른 답', name: '모름', sub: '모름 + 확인에서 틀림', cls: 'b1' },
   { k: 'b2', g: '공부할 때 누른 답', name: '헷갈림', cls: 'b2' },
   { k: 'b3', g: '공부할 때 누른 답', name: '알 것 같음', cls: 'b3' },
   { k: 'b4', g: '공부할 때 누른 답', name: '확실히 앎', cls: 'b4' },
   { k: 'qw', g: '시험', name: '시험에서 틀림' },
   { k: 'qu', g: '시험', name: '시험에서 헷갈렸어요', sub: '맞혔지만 헷갈렸어요를 누름' },
-  { k: 'sticky', g: '자동', name: '끈질긴 단어', sub: '7번 이상 틀린 단어' },
+  { k: 'sticky', g: '자동', name: '자꾸 틀리는 단어', sub: '7번 이상 틀린 단어' },
 ];
 const fmtDay = t => { const d = new Date(t); return `${d.getMonth() + 1}/${d.getDate()}`; };
 // 모음 하나 → [{ id, t: 최근 시각, n: 정렬용 횟수, info }]
@@ -2096,15 +2096,15 @@ function viewMarks() {
   const sel = (key, opts) => `<select data-mksel="${key}">${opts.map(([v, l]) => `<option value="${v}"${c[key] === v ? ' selected' : ''}>${l}</option>`).join('')}</select>`;
   const rows = list.map(z => { const x = IX.get(z.id); const f = isFlag(x.id); return `<li>
       <button class="mk-row" data-act="opencard" data-arg="${esc(x.id)}"><b lang="en">${esc(x.t)}</b><span>${esc(x.ko.join(' · '))}</span>${z.info ? `<small>${z.info}</small>` : ''}</button>
-      <button class="mk-flag${f ? ' on' : ''}" data-act="flag" data-arg="${esc(x.id)}" aria-label="아주 중요 ${f ? '빼기' : '표시'}">${f ? '★' : '☆'}</button></li>`; }).join('');
+      <button class="mk-flag${f ? ' on' : ''}" data-act="flag" data-arg="${esc(x.id)}" aria-label="중요 ${f ? '빼기' : '표시'}">${f ? '★' : '☆'}</button></li>`; }).join('');
   const empty = { flag: '단어 카드에서 ☆를 누르면 여기에 모여요.', my: '"내 단어 고르기"에서 단어를 골라 보세요.', qw: '시험에서 틀린 단어가 여기에 모여요.', qu: '시험에서 "헷갈렸어요"를 누른 단어가 여기에 모여요.' }[cur.k] || '아직 없어요.';
   const lists = A.settings.lists || [];
   const listCards = lists.map(l => { const keep = IX.myList; IX.myList = l.ids; const pr = progress(IX, A.states, 'my'); IX.myList = keep; const pct = pr.total ? Math.round(((pr.mastered + pr.long) / pr.total) * 100) : 0;
     return `<li><span class="ln"><b>${esc(l.name)}</b><small>${l.ids.length}개 · 익힘 ${pct}% · ${orderName(l)}</small></span><button class="chip" data-act="lstudy" data-arg="${l.id}">공부</button><button class="chip" data-act="ledit" data-arg="${l.id}">고치기</button></li>`; }).join('');
   return `<header class="top"><h1>단어</h1></header>
   <div class="hsearch"><span class="hs-ic">${IC.search}</span><input type="search" data-hsearch placeholder="단어 찾기 (영어·한글)" value="${esc(A.hq || '')}" autocomplete="off"><div id="hsres">${hsearchHTML()}</div></div>
-  <section class="panel"><div class="row-between"><h2>내 단어 목록</h2><button class="link" data-act="planpick" data-arg="new-my">+ 새 목록</button></div>
-    ${lists.length ? `<ul class="mylists">${listCards}</ul>` : '<p class="note">직접 고른 단어 목록이 없어요. "+ 새 목록"으로 만들어 보세요.</p>'}</section>
+  <section class="panel"><div class="row-between"><h2>내 단어장</h2><button class="link" data-act="planpick" data-arg="new-my">+ 새 단어장</button></div>
+    ${lists.length ? `<ul class="mylists">${listCards}</ul>` : '<p class="note">아직 내 단어장이 없어요. "+ 새 단어장"으로 만들어 보세요.</p>'}</section>
   <h2 class="sec-h">단어 모음</h2>
   <section class="mk-head">${tiles}</section>
   <section class="panel">
@@ -2121,7 +2121,7 @@ function viewMarks() {
     ${list.length ? `<div class="mk-actions">
       <button class="btn primary" data-act="mkstudy">카드로 다시 공부</button>
       <button class="btn" data-act="mkquiz">이 단어로 시험</button>
-      ${cur.k === 'my' ? '<button class="btn" data-act="pick" data-arg="marks">단어 고치기</button>' : '<button class="btn" data-act="mkmy">내 단어 목록에 넣기</button>'}
+      ${cur.k === 'my' ? '<button class="btn" data-act="pick" data-arg="marks">단어 고치기</button>' : '<button class="btn" data-act="mkmy">내 단어장에 넣기</button>'}
     </div>
     <ul class="mk-list">${rows}</ul>`
     : `<p class="note center" style="padding:16px">${empty}</p>${cur.k === 'my' ? '<button class="btn" style="width:100%" data-act="pick" data-arg="marks">내 단어 고르기</button>' : ''}`}
@@ -2141,7 +2141,7 @@ Object.assign(ACT, {
     const on = !isFlag(id);
     await setFlag(id, on);
     render();
-    toast(on ? '★ 아주 중요 단어에 넣었어요' : '아주 중요 표시를 뺐어요');
+    toast(on ? '★ 중요 단어에 넣었어요' : '중요 표시를 뺐어요');
   },
   mkstudy: () => startSession({ day: dayKey(Date.now()), reviews: mkIds(), fresh: [] }, 'sticky', `단어 모음 · ${mkName()}`),
   mkquiz: () => {

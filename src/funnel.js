@@ -13,7 +13,7 @@ export const STEPS = [
   { key: 'star', name: '중요도' },
   { key: 'kind', name: '종류' },
   { key: 'units', name: '계통' },
-  { key: 'conf', name: '헷갈리는 용어' },
+  { key: 'conf', name: '헷갈리는 짝' },
 ];
 
 function stepSrc(xs, f, ctx) {

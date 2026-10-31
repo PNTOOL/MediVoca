@@ -507,6 +507,14 @@ details.order-line > summary { list-style: none; cursor: pointer; }
 .adjw summary { font-weight: 600; color: var(--deep); }
 .pcard small + small { margin-top: -1px; }
 
+/* 폰에서는 키보드 안내(1~4, Enter, Space, X)를 숨긴다 */
+@media (hover: none) and (pointer: coarse) {
+  .grades .g small, .checks .btn small, .bottom-cta .btn small, .qnext small, .btn.big small { display: none; }
+}
+details.cite { font-size: 12.5px; color: var(--sub); }
+details.cite summary { font-size: 13px; color: var(--deep); }
+details.cite p { margin-top: 6px; }
+
 /* 준비 끝 */
 .readycard { background: var(--pri); color: var(--pri-ink); border-radius: calc(var(--r-card) + 4px); padding: 22px; display: grid; gap: 12px; margin-bottom: 12px; }
 .readycard .big { font-family: var(--display); font-weight: var(--display-w); font-size: 38px; line-height: 1.1; letter-spacing: -0.03em; }
