@@ -1179,17 +1179,41 @@ function nextCard() {
 }
 
 let speaking = 0;
+// 발음: 브라우저 음성(speechSynthesis). 안드로이드 크롬은 cancel() 바로 뒤 speak()를 버리거나,
+// 처음엔 음성 목록이 비어 있고, 영어 음성이 없는 폰(삼성 TTS 한국어만 등)에서는 소리가 안 난다. 그래서
+// ① 음성 목록을 미리 받아 두고 ② 말하는 중일 때만 멈춘 뒤 잠깐 있다가 말하고 ③ 1.5초 안에 시작을 못 하면 안내한다.
+let VOICES = [];
+function loadVoices() { try { VOICES = speechSynthesis.getVoices() || []; } catch (e) { VOICES = []; } }
+if ('speechSynthesis' in window) { loadVoices(); try { speechSynthesis.addEventListener('voiceschanged', loadVoices); } catch (e) { /* 예전 브라우저 */ } }
+const pickVoice = () => {
+  const en = VOICES.filter(z => /^en[-_]/i.test(z.lang));
+  return en.find(z => /^en[-_]US/i.test(z.lang) && z.localService) || en.find(z => /^en[-_]US/i.test(z.lang)) || en.find(z => z.localService) || en[0] || null;
+};
+let sayHelpShown = false;
+function sayHelp(why) {
+  if (sayHelpShown) return; sayHelpShown = true;
+  const kakao = /KAKAOTALK/i.test(navigator.userAgent);
+  toast(kakao ? '카카오톡 안에서는 발음이 안 나올 수 있어요. 크롬으로 열어 주세요.'
+    : why === 'novoice' ? '폰에 영어 음성이 없어요. 설정 → 일반 → 텍스트 음성 변환에서 "Google 음성 인식 및 합성"과 영어(미국) 음성을 받아 주세요.'
+    : '소리가 안 나면 미디어 볼륨을 올리고, 설정 → 텍스트 음성 변환(TTS) 엔진을 Google로 바꿔 보세요.', 7000);
+}
 function sayEn(t) {
   try {
-    if (!('speechSynthesis' in window)) { toast('이 기기에서는 발음 듣기를 쓸 수 없어요'); return; }
-    speechSynthesis.cancel();
+    if (!('speechSynthesis' in window)) { toast('이 브라우저에서는 발음 듣기를 쓸 수 없어요. 크롬이나 사파리로 열어 주세요.'); return; }
+    const ss = window.speechSynthesis;
+    if (!VOICES.length) loadVoices();
     const u = new SpeechSynthesisUtterance(speakable(t));
     u.lang = 'en-US';
     u.rate = A.settings.rate;
-    const v = (speechSynthesis.getVoices() || []).find(z => /^en[-_]US/i.test(z.lang)) || (speechSynthesis.getVoices() || []).find(z => /^en[-_]/i.test(z.lang));
+    const v = pickVoice();
     if (v) u.voice = v;
     speaking++;
-    speechSynthesis.speak(u);
+    let started = false;
+    u.onstart = () => { started = true; };
+    u.onerror = e => { if (e && (e.error === 'canceled' || e.error === 'interrupted')) return; sayHelp(e && e.error === 'language-unavailable' ? 'novoice' : ''); };
+    const go = () => { try { ss.resume(); } catch (e) { /* 없어도 됨 */ } ss.speak(u); };
+    if (ss.speaking || ss.pending) { ss.cancel(); setTimeout(go, 80); } else go();
+    setTimeout(() => { if (!started && !ss.speaking) sayHelp(VOICES.length && !pickVoice() ? 'novoice' : ''); }, 1500);
   } catch (e) { /* 발음은 없어도 공부할 수 있다 */ }
 }
 
