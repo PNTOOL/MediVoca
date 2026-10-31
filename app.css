@@ -531,6 +531,14 @@ details.cite p { margin-top: 6px; }
 .gwrap[open] > summary b::after { content: ' ▴'; }
 .gwrap > summary small { color: var(--sub); font-size: 13px; }
 
+.gsec { padding: 0; }
+.gsec > summary { list-style: none; cursor: pointer; padding: 16px 18px; font-weight: 700; font-size: 16px; color: var(--ink); display: flex; justify-content: space-between; align-items: center; }
+.gsec > summary::after { content: '▾'; color: var(--deep); font-size: 14px; }
+.gsec[open] > summary::after { content: '▴'; }
+.gsec > summary::-webkit-details-marker { display: none; }
+.gbody { padding: 0 18px 16px; display: grid; gap: 8px; }
+.gl { margin: 0; padding-left: 18px; display: grid; gap: 6px; font-size: 14.5px; }
+
 /* 준비 끝 */
 .readycard { background: var(--pri); color: var(--pri-ink); border-radius: calc(var(--r-card) + 4px); padding: 22px; display: grid; gap: 12px; margin-bottom: 12px; }
 .readycard .big { font-family: var(--display); font-weight: var(--display-w); font-size: 38px; line-height: 1.1; letter-spacing: -0.03em; }
