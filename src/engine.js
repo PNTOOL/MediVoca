@@ -533,3 +533,47 @@ export function listOrder(index, ids, { mode = 'rec', units = null } = {}) {
   for (const id of rec) put(id);
   return out;
 }
+
+// ───────── 단어 묶음 하나의 현황 (전체·추천 범위·내 단어 목록마다) ─────────
+// 상태별 수, 마지막에 누른 답별 수(1 모름·틀림 2 헷갈림 3 알 것 같음 4 확실히 앎, 0 아직 안 봄),
+// 최근 days일 복습 정답률, 오늘 본 수, 지금 기억 확률 평균
+export function setSummary(index, states, log, ids, { now = Date.now(), retention = 0.9, days = 30 } = {}) {
+  const set = ids instanceof Set ? ids : new Set(ids);
+  const f = makeScheduler(retention);
+  const st = { new: 0, learning: 0, mastered: 0, long: 0 };
+  const last = [0, 0, 0, 0, 0];
+  let total = 0, rSum = 0, rN = 0;
+  const lastAns = new Map();
+  for (const e of [...log].sort((a, b) => a.t - b.t)) if (set.has(e.c)) lastAns.set(e.c, ratingOf(e));
+  for (const id of set) {
+    if (!index.byId.has(id)) continue;
+    total++;
+    const s = states.get(id);
+    st[statusOf(s)]++;
+    last[lastAns.get(id) || 0]++;
+    if (s) { rSum += f.get_retrievability(s.card, new Date(now), false); rN++; }
+  }
+  const today = dayKey(now), since = now - days * DAY;
+  const seen = new Set();
+  let rev = 0, ok = 0;
+  const todayIds = new Set();
+  for (const e of [...log].sort((a, b) => a.t - b.t)) {
+    if (!set.has(e.c)) continue;
+    const d = dayKey(e.t);
+    if (d === today) todayIds.add(e.c);
+    const k = e.c + '|' + d;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    const s = states.get(e.c);
+    if (e.t < since || !s || s.firstDay === d) continue;
+    rev++; if (isCorrect(e)) ok++;
+  }
+  return {
+    total, status: st, last, started: rN,
+    done: st.mastered + st.long,
+    pct: total ? Math.round(((st.mastered + st.long) / total) * 100) : 0,
+    recall: rN ? rSum / rN : null,
+    actual: rev ? ok / rev : null, reviews: rev,
+    today: todayIds.size,
+  };
+}

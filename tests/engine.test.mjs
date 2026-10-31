@@ -352,3 +352,22 @@ test('내 단어 목록 순서: 넣은 순서·단원 순서·조각은 단어 �
   ix.myList = [a.id, b.id]; ix.myOrder = { mode: 'added' };
   assert.deepEqual(newOrder(ix, 'my'), added);
 });
+
+import { setSummary } from '../src/engine.js';
+test('묶음 현황: 상태·마지막 답·오늘', () => {
+  const ix = buildIndex(UNITS, PAIRS, CONFUSIONS);
+  const ids = ix.items.slice(0, 5).map(x => x.id);
+  const now = Date.UTC(2026, 9, 31, 3);
+  const log = [
+    { t: now - 1000, c: ids[0], b: 1, d: 'x' },
+    { t: now - 900, c: ids[1], b: 2, d: 'x' },
+    { t: now - 800, c: ids[2], b: 4, ok: true, d: 'x' },
+    { t: now - 700, c: ids[3], b: 3, ok: false, d: 'x' },
+  ];
+  const states = replay(log);
+  const r = setSummary(ix, states, log, ids, { now });
+  assert.equal(r.total, 5);
+  assert.deepEqual(r.last, [1, 2, 1, 0, 1]);
+  assert.equal(r.status.new, 1);
+  assert.equal(r.today, 4);
+});
