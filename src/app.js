@@ -97,7 +97,9 @@ function recompute() {
 }
 
 // 내 단어 목록(여러 개). curL() = 지금 고른 목록. 엔진의 범위 'my'는 IX.myList(= 지금 목록)를 쓴다.
-const DEFAULT_MY_PACE = { mode: 'daily', cards: 50 };
+// 새 내 단어 목록의 기본 기간: 4주 (만들 때 바꿀 수 있다)
+const DEFAULT_MY_PACE = { mode: 'goal', weeks: 4 };
+const fixPace = pc => (pc && pc.mode === 'goal' && !pc.end ? { mode: 'goal', start: dayKey(Date.now()), end: (() => { const t = new Date(dayKey(Date.now()) + 'T12:00:00'); t.setDate(t.getDate() + (pc.weeks || 4) * 7); return dayKey(t.getTime() + 4 * 3600000); })() } : pc);
 const curL = () => { const L = A.settings.lists || []; return L.find(l => l.id === A.settings.curList) || L[0] || null; };
 const myIds = () => (curL() ? curL().ids : []);
 const myName = () => (curL() ? curL().name : '내 단어');
@@ -105,13 +107,13 @@ function syncMy() { IX.myList = myIds(); IX.myOrder = curL() ? curL().order : nu
 function newList(name) {
   const L = A.settings.lists || (A.settings.lists = []);
   let n = L.length + 1; while (L.some(l => l.name === `내 단어 ${n}`)) n++;
-  const l = { id: 'L' + Date.now().toString(36), name: name || `내 단어 ${n}`, ids: [], pace: { ...DEFAULT_MY_PACE } };
+  const l = { id: 'L' + Date.now().toString(36), name: name || `내 단어 ${n}`, ids: [], pace: fixPace({ ...DEFAULT_MY_PACE }) };
   L.push(l); A.settings.curList = l.id; syncMy();
   return l;
 }
 // 공부 계획 화면에서 목록을 바꿔 가며 기간을 고를 때, 목록마다 고른 기간을 기억했다가 저장할 때 한꺼번에 쓴다
 function draftKeepMy() { const d = A.draft; if (d && d.scope === 'my' && curL()) (d.myPaces || (d.myPaces = {}))[curL().id] = d.pace; }
-function draftLoadMy() { const d = A.draft; if (d && d.scope === 'my' && curL()) d.pace = { ...((d.myPaces && d.myPaces[curL().id]) || curL().pace || DEFAULT_MY_PACE) }; }
+function draftLoadMy() { const d = A.draft; if (d && d.scope === 'my' && curL()) d.pace = { ...((d.myPaces && d.myPaces[curL().id]) || curL().pace || fixPace({ ...DEFAULT_MY_PACE })) }; }
 function setMyIds(ids) { const l = curL() || newList(); l.ids = ids; syncMy(); }
 const orderName = l => { const o = (l && l.order) || { mode: 'rec' }; return (LIST_ORDERS.find(z => z[0] === o.mode) || LIST_ORDERS[0])[1]; };
 // 목록 고르기 줄: 목록 칩 + 새 목록 + 이름 바꾸기·지우기
@@ -125,7 +127,7 @@ function listBar() {
 const AP = () => A.settings.track === 'syl' && A.settings.syl && sylUnits(A.settings.syl.scope).length
   ? { track: 'syl', scope: A.settings.syl.scope, pace: A.settings.syl.pace }
   : A.settings.track === 'my' && myIds().length
-  ? { track: 'my', scope: 'my', pace: curL().pace || DEFAULT_MY_PACE }
+  ? { track: 'my', scope: 'my', pace: fixPace(curL().pace) || fixPace({ ...DEFAULT_MY_PACE }) }
   : { track: 'rec', scope: A.settings.scope, pace: A.settings.pace };
 // 오늘 새 단어 양 조절(미리 더 하기 / 오늘은 적게). 그날만 쓴다.
 const todayAdj = () => { const a = A.settings.todayAdj; return a && a.day === dayKey(Date.now()) ? a.n : 0; };
@@ -331,6 +333,27 @@ function hsearchHTML() {
   return `<ul class="hs-list">${hits.slice(0, 8).map(([, x]) => `<li><button data-act="opencard" data-arg="${esc(x.id)}"><b lang="en">${esc(x.t)}</b><span>${esc(x.ko.join(' · '))}</span><em>${KIND[x.k]}</em></button></li>`).join('')}</ul>${hits.length > 8 ? `<p class="hs-none">${hits.length - 8}개 더 있어요. 더 길게 써 보세요.</p>` : ''}`;
 }
 
+// 과정 정보: "16주 과정 · 3주째 · 2월 20일까지(D-112) · 하루 새 단어 15개 · 약 18분" (지금 계획 기준)
+function courseInfo() {
+  const ap = AP(); const pc = ap.pace;
+  const info = paceInfo(IX, A.states, { pace: pc, scope: ap.scope });
+  const today = dayKey(Date.now());
+  const started = info.total - info.remaining;
+  const out = { info, total: info.total, started, startedPct: info.total ? Math.round((started / info.total) * 100) : 0 };
+  if (pc.mode === 'goal' && pc.end) {
+    const allDays = Math.max(1, daysBetween(pc.start || today, pc.end));
+    out.weeks = Math.max(1, Math.round(allDays / 7));
+    out.weekNo = Math.min(out.weeks, Math.floor(daysBetween(pc.start || today, today) / 7) + 1);
+    out.leftWeeks = Math.max(0, Math.round(info.daysLeft / 7));
+    out.line = info.ended ? `${out.weeks}주 과정 · 기간이 지났어요` : `${out.weeks}주 과정 · ${out.weekNo}주째 · ${fmtDate(pc.end)}까지 (D-${info.daysLeft})`;
+    out.daily = info.ended ? '하루 50장씩 복습해요' : info.reviewPhase ? '마지막 복습 기간 · 새 단어 없음' : `하루 새 단어 ${info.perDay}개 · 약 ${info.minutes}분`;
+  } else {
+    out.line = `기간 없이 하루 ${pc.cards || 50}장 · 다 하려면 약 ${info.weeks}주`;
+    out.daily = `하루 ${pc.cards || 50}장 · 약 ${info.minutes}분`;
+  }
+  return out;
+}
+
 // ───────── 홈: 오늘 공부할 단어 목록 고르기 (추천 · 학교 수업 · 내 단어 A, B …) ─────────
 function planDefs() {
   const out = [{ key: 'rec', track: 'rec', icon: '✨', kind: '추천', name: '추천 단어', sub: scopeLabel(A.settings.scope) }];
@@ -350,32 +373,34 @@ function viewHome() {
   const dateLine = new Date().toLocaleDateString('ko-KR', { month: 'long', day: 'numeric', weekday: 'long' });
   const curKey = trackKey();
   const lastH = [...A.history].reverse().find(h => h.key && h.key !== 'other');
-  const lastKey = lastH ? lastH.key.replace(':quick', '') : curKey;
+  const lastKey = lastH ? lastH.key.replace(':quick', '') : '';
   const defs = planDefs();
   const today0 = defs.find(z => z.key === curKey) || defs[0];
   const cards = planDefs().map(def => {
     if (def.key === today0.key) return '';
     if (def.list && !def.list.ids.length) return `<li><button class="pcard empty" data-act="planopen" data-arg="${esc(def.key)}"><span class="pi">${def.icon}</span><span class="pb"><span class="pk">${def.kind}</span><b>${esc(def.name)}</b><small>아직 단어가 없어요 · 눌러서 고르기</small></span><span class="go">›</span></button></li>`;
-    const r = withPlan(def, () => { const p = plan(0 + (def.key === curKey ? A.extraNew + todayAdj() : 0)); const pr = progress(IX, A.states, AP().scope); return { p, pr }; });
-    const sess = def.key === (A.sess && A.sess.key) && liveSess(A.sess) ? A.sess : liveSess(A.sessions[def.key]) ? A.sessions[def.key] : null;
+    const r = withPlan(def, () => { const p = plan(0 + (def.key === curKey ? A.extraNew + todayAdj() : 0)); const pr = progress(IX, A.states, AP().scope); return { p, pr, c: courseInfo() }; });
+    let sess = def.key === (A.sess && A.sess.key) && liveSess(A.sess) ? A.sess : liveSess(A.sessions[def.key]) ? A.sessions[def.key] : null;
+    if (sess && !sess.doneCards) sess = null;
     const pct = r.pr.total ? Math.round(((r.pr.mastered + r.pr.long) / r.pr.total) * 100) : 0;
     const todayN = r.p.reviews.length + r.p.fresh.length;
     const line = sess ? `<em class="badge">하던 곳 ${sess.doneCards}/${sess.total}</em>` : todayN ? `오늘 복습 ${r.p.reviews.length} · 새 단어 ${r.p.fresh.length} · 약 ${r.p.minutes}분` : '<span class="ok">✓ 오늘 할 일 끝</span>';
     return `<li><button class="pcard" data-act="todaypick" data-arg="${esc(def.key)}">
       <span class="pi">${def.icon}</span>
-      <span class="pb"><span class="pk">${def.kind}${def.key === lastKey ? ' · 마지막에 공부한 것' : ''}</span><b>${esc(def.name)}</b><small>${esc(def.sub)} · 익힘 ${pct}%</small>
+      <span class="pb"><span class="pk">${def.kind}${def.key === lastKey ? ' · 마지막에 공부한 것' : ''}</span><b>${esc(def.name)}</b><small>${esc(r.c.line)}</small><small>${esc(def.sub)} · 시작 ${r.c.startedPct}% · 익힘 ${pct}% · ${esc(r.c.daily)}</small>
         <span class="pbar"><i style="width:${pct}%"></i></span><span class="pt">${line}</span></span>
       <span class="go pick">고르기</span></button></li>`;
   }).join('');
   // 오늘 공부할 목록 (처음엔 마지막에 공부한 목록) — 여기서 바로 시작하거나 이어서
-  const tp = today0.list && !today0.list.ids.length ? null : withPlan(today0, () => ({ p: plan(), pr: progress(IX, A.states, AP().scope) }));
+  const tp = today0.list && !today0.list.ids.length ? null : withPlan(today0, () => ({ p: plan(), pr: progress(IX, A.states, AP().scope), c: courseInfo() }));
   const tSess = liveSess(A.sess) && A.sess.key === today0.key ? A.sess : null;
   const tPct = tp && tp.pr.total ? Math.round(((tp.pr.mastered + tp.pr.long) / tp.pr.total) * 100) : 0;
   const tN = tp ? tp.p.reviews.length + tp.p.fresh.length : 0;
   const todayBox = `<section class="hero today-hero">
     <div class="th-top"><span class="th-k">오늘 공부할 단어${today0.key === lastKey ? ' · 마지막에 공부한 목록' : ''}</span><button class="th-plan" data-act="planopen" data-arg="${esc(today0.key)}">그룹·진도 ›</button></div>
     <div class="th-name"><span>${today0.icon}</span><b>${esc(today0.name)}</b></div>
-    <span class="th-sub">${esc(today0.kind)} · ${esc(today0.sub)} · 익힘 ${tPct}%</span>
+    <span class="th-sub">${tp ? esc(tp.c.line) : ''}</span>
+    <span class="th-sub">${esc(today0.sub)} · 시작 ${tp ? tp.c.startedPct : 0}% · 익힘 ${tPct}% · ${tp ? esc(tp.c.daily) : ''}</span>
     ${tSess ? `<p class="th-line">하던 곳 ${tSess.doneCards} / ${tSess.total}장 · 남은 ${tSess.queue.length + (tSess.finalsAdded ? 0 : tSess.finals.length)}장</p><button class="btn primary big" data-act="resume">이어서 하기</button>`
       : tN ? `<div class="hero-stats"><div><b>${tp.p.reviews.length}</b><span>복습</span></div><div><b>${tp.p.fresh.length}</b><span>새 단어</span></div><div><b>${tp.p.minutes}<small>분</small></b><span>예상 시간</span></div></div><button class="btn primary big" data-act="start">오늘 공부 시작</button>`
       : `<p class="th-line">✓ 오늘 할 일 끝! 더 하려면 새 단어를 넣거나 시험을 봐요.</p><div class="hero-tools"><button class="htool" data-act="more">새 단어 ${RULES.batch}개 더</button><button class="htool" data-act="quizToday">오늘 단어 시험</button></div>`}
@@ -444,8 +469,9 @@ function viewPlan() {
   let hero;
   if (resume) {
     const left = A.sess.queue.length + (A.sess.finalsAdded ? 0 : A.sess.finals.length);
-    hero = `<p class="big-line">하던 공부가 있어요</p><p class="sub">${A.sess.doneCards} / ${A.sess.total}장 봤어요 · 남은 카드 ${left}장</p>
-      <button class="btn primary big" data-act="resume">이어서 하기</button>
+    hero = A.sess.doneCards ? `<p class="big-line">하던 공부가 있어요</p><p class="sub">${A.sess.doneCards} / ${A.sess.total}장 봤어요 · 남은 카드 ${left}장</p>
+      <button class="btn primary big" data-act="resume">이어서 하기</button>` : `<p class="big-line">오늘 할 일 ${A.sess.total}장이 준비돼 있어요</p>
+      <button class="btn primary big" data-act="resume">오늘 공부 시작</button>
       <button class="btn ghost" data-act="drop">하던 것 그만두고 새로 시작</button>`;
   } else if (doneToday) {
     hero = `<p class="big-line">오늘 할 일 끝!</p><p class="sub">내일 다시 만나요. 더 하고 싶으면 새 단어를 조금 더 넣을 수 있어요.</p>
@@ -500,21 +526,33 @@ function viewPlan() {
     <div class="pt"><span class="sub">${def.icon} ${esc(def.kind)}</span><h1>${esc(def.name)}</h1></div>
     <button class="link" data-act="pace">기간·범위</button></header>
   <section class="hero">${hero}</section>
-  <section class="panel">
-    <div class="plan-row">
-      <button class="ring" data-act="stats" aria-label="현황 보기" style="background:conic-gradient(var(--pri) 0 ${pct}%, var(--tint) ${pct}% 100%)"><span>${pct}%</span></button>
-      <div class="txt">
-        <div class="row-between"><b>진도</b><button class="link" data-act="pace">바꾸기</button></div>
-        <span>${S.scope === 'my' ? `'${esc(myName())}'` : scopeLabel(S.scope)} ${pr.total}개 중 <b>${done}개 익힘</b></span>
-        <span class="sub">${speed}</span>
-      </div>
-    </div>
-    ${track}
-    <p class="note" style="margin-top:10px">새 단어 ${pr.new} · 배우는 중 ${pr.learning} · 익힘 ${pr.mastered} · 오래 기억 ${pr.long}</p>
-    ${pr.suggestNext && S.scope !== 'all' ? '<p class="note">이 범위의 80%를 익혔어요! 공부 계획에서 범위를 넓혀 보세요.</p>' : ''}
-  </section>
+  ${courseCard(pr, pct, track)}
   ${groupPanel()}
 `;
+}
+
+// 계획 화면의 과정 칸: 며칠 과정·몇 주째·진행·하루 양, 남은 기간 바꾸기
+function courseCard(pr, pct, track) {
+  const c = courseInfo(); const ap = AP();
+  const leftNow = c.leftWeeks || 4;
+  const w = A.adjW || leftNow;
+  const today = dayKey(Date.now());
+  const endW = addDays(today, w * 7);
+  const prev = paceInfo(IX, A.states, { pace: { mode: 'goal', start: today, end: endW }, scope: ap.scope });
+  const doneN = pr.mastered + pr.long;
+  return `<section class="panel course">
+    <div class="row-between"><h2>과정</h2><button class="link" data-act="pace">기간·범위</button></div>
+    <p class="cline">${esc(c.line)}</p>
+    ${c.weeks ? `<div class="wkbar" aria-label="${c.weeks}주 중 ${c.weekNo}주째">${Array.from({ length: Math.min(c.weeks, 52) }, (_, i) => `<i class="${i + 1 < c.weekNo ? 'past' : i + 1 === c.weekNo ? 'now' : ''}"></i>`).join('')}</div>` : ''}
+    <div class="sumcard" style="margin-top:10px"><div><b>${c.startedPct}%</b><span>시작한 단어<br>${c.started}/${c.total}</span></div><div><b>${pct}%</b><span>익힘<br>${doneN}개</span></div><div><b>${c.info.perDay != null ? c.info.perDay + '개' : (ap.pace.cards || 50) + '장'}</b><span>${c.info.perDay != null ? '하루 새 단어' : '하루 장수'}<br>약 ${c.info.minutes}분</span></div></div>
+    ${track}
+    <p class="note" style="margin-top:8px">새 단어 ${pr.new} · 배우는 중 ${pr.learning} · 익힘 ${pr.mastered} · 오래 기억 ${pr.long}</p>
+    ${c.info.remaining ? `<details class="adjw"${A.adjW ? ' open' : ''}><summary>남은 단어 ${c.info.remaining}개를 몇 주에 끝낼지 바꾸기</summary>
+      <div class="stepper"><button class="icon-btn" data-act="adjw" data-arg="${Math.max(1, w - 1)}" aria-label="1주 줄이기">−</button><b>${w}주</b><button class="icon-btn" data-act="adjw" data-arg="${Math.min(52, w + 1)}" aria-label="1주 늘리기">+</button></div>
+      <p class="note">→ 하루 새 단어 <b>${prev.perDay}개</b> · 약 ${prev.minutes}분 · ${fmtDate(endW)}까지</p>
+      <button class="btn primary" style="width:100%;margin-top:8px" data-act="adjwsave" data-arg="${w}">이렇게 바꾸기</button>
+      <p class="note" style="margin-top:6px">지금까지 공부한 기록은 그대로예요. 남은 단어만 새 기간에 나눠요.</p></details>` : '<p class="note">이 목록의 단어를 모두 시작했어요. 이제 복습으로 기억을 굳혀요.</p>'}
+  </section>`;
 }
 
 // 계획 안의 그룹(계통·단원): 진도와 "먼저 하기 / 나중에", 지금 이 그룹만
@@ -1261,7 +1299,7 @@ const ACT = {
     const ap = AP();
     const sylDefault = { scope: makeSyl([3, 2, 1], []), pace: { mode: 'goal', end: addDays(dayKey(Date.now()), 16 * 7) } };
     A.draft = { mode: ap.track, scope: ap.scope, pace: { ...ap.pace },
-      rec: { scope: A.settings.scope, pace: { ...A.settings.pace } }, my: { pace: { ...((curL() && curL().pace) || DEFAULT_MY_PACE) } },
+      rec: { scope: A.settings.scope, pace: { ...A.settings.pace } }, my: { pace: { ...((curL() && curL().pace) || fixPace({ ...DEFAULT_MY_PACE })) } },
       syl: { ...(A.settings.syl || sylDefault), pace: { ...((A.settings.syl || sylDefault).pace) } } };
     if (keep === true) { if (A.first && A.draft.pace.mode !== 'goal') A.draft.pace = { mode: 'goal', end: addDays(dayKey(Date.now()), 16 * 7) }; return; }
     if (A.first && A.draft.pace.mode !== 'goal') A.draft.pace = { mode: 'goal', end: addDays(dayKey(Date.now()), 16 * 7) };
@@ -1299,7 +1337,7 @@ const ACT = {
     if (arg === 'new-syl') { ACT.pace(); ACT.dscopemode('syl'); return; }
     if (arg === 'new-my') {
       const name = (prompt('새 목록 이름 (예: 중간고사, 교수님 목록)', '') || '').trim();
-      ACT.pace(); A.draft.scope = 'my'; A.draft.pace = { ...DEFAULT_MY_PACE }; draftKeepMy(); newList(name.slice(0, 20) || undefined); draftLoadMy(); await saveSettings(); ACT.pick('pace'); return;
+      ACT.pace(); A.draft.scope = 'my'; A.draft.pace = fixPace({ ...DEFAULT_MY_PACE }); draftKeepMy(); newList(name.slice(0, 20) || undefined); draftLoadMy(); await saveSettings(); ACT.pick('pace'); return;
     }
     if (arg.startsWith('L:')) { A.settings.curList = arg.slice(2); A.settings.track = 'my'; syncMy(); }
     else A.settings.track = arg;
@@ -1315,7 +1353,8 @@ const ACT = {
     toast(`오늘은 "${planDefs().find(z => z.key === key).name}"${A.sess ? ' · 하던 곳부터' : ''}`);
   },
   planopen: async key => {
-    if (key.startsWith('L:')) { A.settings.curList = key.slice(2); A.settings.track = 'my'; syncMy(); if (!myIds().length) { await saveSettings(); ACT.pace(); A.draft.scope = 'my'; A.draft.pace = { ...(curL().pace || DEFAULT_MY_PACE) }; ACT.pick('pace'); return; } }
+    A.adjW = 0;
+    if (key.startsWith('L:')) { A.settings.curList = key.slice(2); A.settings.track = 'my'; syncMy(); if (!myIds().length) { await saveSettings(); ACT.pace(); A.draft.scope = 'my'; A.draft.pace = { ...(curL().pace || fixPace({ ...DEFAULT_MY_PACE })) }; ACT.pick('pace'); return; } }
     else A.settings.track = key;
     await saveSettings(); await switchSess();
     A.view = 'plan'; A.adjOpen = false; render(); window.scrollTo(0, 0);
@@ -1331,6 +1370,17 @@ const ACT = {
     f[kind] = f[kind].includes(uid) ? f[kind].filter(z => z !== uid) : [...f[kind], uid];
     await saveSettings(); render();
     toast(kind === 'first' ? (f.first.includes(uid) ? '이 그룹부터 새 단어가 나와요' : '먼저 하기를 뺐어요') : (f.later.includes(uid) ? '이 그룹은 맨 뒤로 미뤘어요' : '나중에를 뺐어요'));
+  },
+  adjw: n => { A.adjW = Number(n); render(); },
+  // 남은 단어를 n주에: 오늘부터 새 기간 (계획마다)
+  adjwsave: async n => {
+    n = Number(n); const today = dayKey(Date.now());
+    const pc = { mode: 'goal', start: today, end: addDays(today, n * 7) };
+    pc.perDay0 = paceInfo(IX, A.states, { pace: pc, scope: AP().scope }).perDay;
+    const tr = AP().track;
+    if (tr === 'my') curL().pace = pc; else if (tr === 'syl') A.settings.syl.pace = pc; else A.settings.pace = pc;
+    A.adjW = 0; await saveSettings(); render();
+    toast(`남은 단어를 ${n}주에 나눠요 · 하루 새 단어 ${pc.perDay0}개`);
   },
   gclear: async () => { const fc = A.settings.focus || {}; delete fc[trackKey()]; A.settings.focus = fc; await saveSettings(); render(); },
   gnow: uid => {

@@ -499,6 +499,14 @@ details.order-line > summary { list-style: none; cursor: pointer; }
 .spellres.good { color: #2f8a5b; } .spellres.bad { color: #c0563c; }
 .spellface .word mark { background: #ffd6cc; color: #b3261e; border-radius: 4px; padding: 0 1px; }
 
+.course .cline { font-weight: 600; margin-top: 2px; }
+.wkbar { display: flex; gap: 3px; margin-top: 8px; }
+.wkbar i { flex: 1; height: 8px; border-radius: 3px; background: color-mix(in srgb, var(--line) 70%, transparent); }
+.wkbar i.past { background: var(--mid); } .wkbar i.now { background: var(--deep); }
+.adjw { margin-top: 10px; padding: 10px 12px; border-radius: 12px; background: var(--tint); }
+.adjw summary { font-weight: 600; color: var(--deep); }
+.pcard small + small { margin-top: -1px; }
+
 /* 준비 끝 */
 .readycard { background: var(--pri); color: var(--pri-ink); border-radius: calc(var(--r-card) + 4px); padding: 22px; display: grid; gap: 12px; margin-bottom: 12px; }
 .readycard .big { font-family: var(--display); font-weight: var(--display-w); font-size: 38px; line-height: 1.1; letter-spacing: -0.03em; }
