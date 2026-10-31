@@ -31,7 +31,11 @@
 - 헷갈리는 짝: data/pairs.js의 sa·sb 반대쪽이 오늘 처음 배웠거나 아직 배우는 중이면 미룬다.
 - 모름(틀림 포함)이었던 카드는 세션 끝에 한 번 더. 헷갈림은 5장 뒤 다시만.
 - 키보드: 1~4 단계, 확인 화면 Enter·O = 맞았어요 / X·Backspace = 틀렸어요, 설명 화면 Space·Enter = 다음, H 조각 힌트, P 발음.
-- 처음 열면 공부 방법 안내(src/guide.js) → 공부 계획 → 홈. 그 뒤 안내는 홈의 "사용법" 버튼으로 연다.
+- 처음 열면: 환영(연구 근거 3줄, "다른 기기 기록 불러오기") → 색·모양 고르기 → 공부 계획 → 준비 끝 → 첫 공부. 공부 방법 안내(src/guide.js)는 홈의 "사용법"(?) 버튼으로만 연다.
+- 색 테마 5가지(버건디 기본·글래시어·라벤더·세이지·선셋, 2026 아이폰 색에서 착안)와 모양 2가지(기본: 또렷한 카드 / 부드러움: 둥근 알약 버튼·그림자·고운돋움 제목). src/themes.js, app.css의 [data-theme]·[data-look]. 설정에서 언제든 바꾼다.
+  - 4단계 버튼은 테마 색의 밝기 순서: 모름 tint → 헷갈림 tint2 → 알 것 같음 mid → 확실히 앎 pri.
+  - 고운돋움은 vendor/fonts/gowun-dodum(OFL)에 넣어 두고, 쓰는 글자 조각만 내려받는다.
+  - 디자인 시안: https://claude.ai/artifact/QkcM2eHmfig58XpUv5ubtP
 - 공부 계획(홈 "바꾸기"): 범위 ★★★만 / 핵심(★★ 이상) / 전체(기본), 속도 하루 30·50(기본)·80장 또는 날짜까지 끝내기.
   - 하루 장수를 바꾸면 새 단어 최대도 같은 비율(30장 → 18, 80장 → 48).
   - 날짜까지 끝내기: 남은 단어 ÷ 새 단어 넣는 날. 마지막 복습만 기간은 계획을 세운 날 기준 4주 이상 12일, 2주 이상 7일, 더 짧으면 절반. 밀린 복습이 있어도 새 단어를 쉬지 않는다. 날짜가 지나면 하루 50장으로.
@@ -41,7 +45,7 @@
 
 ## 파일 구조 (빌드 없음: 저장소 파일이 그대로 배포된다)
 - index.html, app.css, manifest.webmanifest, sw.js, icons/
-- src/engine.js 학습 엔진(순수 함수), src/data.js 단어 묶기·검사, src/backup.js 백업, src/text.js 글자, src/store.js IndexedDB, src/guide.js 안내, src/app.js 화면
+- src/engine.js 학습 엔진(순수 함수), src/data.js 단어 묶기·검사, src/backup.js 백업, src/text.js 글자, src/store.js IndexedDB, src/guide.js 안내, src/themes.js 색·모양, src/app.js 화면
 - data/terms-01.js … terms-16.js 장별 단어, data/pairs.js 헷갈리는 짝, data/index.js 목록 (형식: data/README.md)
 - vendor/ts-fsrs.mjs: ts-fsrs 배포 파일을 그대로 넣음. 올릴 때는 npm에서 받은 dist/index.mjs로 바꾸고 맨 위 주석의 버전을 고친다.
 - 앱 파일을 고치면 sw.js의 CACHE 이름 숫자를 올린다(폰에 새 파일이 들어가게).

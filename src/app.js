@@ -7,6 +7,7 @@ import {
   minutesForCards, daysBetween,
 } from './engine.js';
 import { guideHTML } from './guide.js';
+import { THEMES, LOOKS, themeOf, applyLook } from './themes.js';
 import { makeBackup, backupName, parseBackup, mergeLogs, mergeNotes } from './backup.js';
 import { esc, rich, speakable } from './text.js';
 import * as store from './store.js';
@@ -20,7 +21,9 @@ const DEFAULTS = {
   retention: 0.9, rn: false, rate: 0.85, label: '', device: '',
   scope: 'all',                                  // 공부 범위: star3 | core | all
   pace: { mode: 'daily', cards: RULES.dailyCards }, // 공부 속도
-  seenGuide: false,                              // 처음 안내를 봤는지
+  seenGuide: false,                              // 첫 시작(환영 → 색 → 계획 → 준비)을 마쳤는지
+  theme: 'burgundy',                             // 색: burgundy | glacier | lavender | sage | sunset
+  look: 'basic',                                 // 모양: basic 기본 | soft 부드러움
 };
 const A = {
   log: [],
@@ -29,8 +32,9 @@ const A = {
   notes: {},           // 내 암기법 { id: { s, t } }
   lastBackup: 0,
   sess: null,          // 지금 세션
-  view: 'home',        // home | study | end | guide | pace
-  first: false,        // 처음 실행: 안내 → 계획 → 홈
+  view: 'home',        // home | study | end | guide | pace | welcome | look | ready
+  first: false,        // 처음 실행: 환영 → 색 → 계획 → 준비 끝 → 홈
+  draftLook: null,     // 색·모양 화면에서 고르는 중인 값
   draft: null,         // 계획 화면에서 고르는 중인 값
   phase: 'front',      // front | check | explain
   pick: 0,             // 앞면에서 고른 단계
@@ -55,8 +59,9 @@ async function boot() {
   A.lastBackup = await store.get('lastBackup', 0);
   const saved = await store.get('session', null);
   if (saved && saved.day === dayKey(Date.now()) && !isDone(saved)) A.sess = saved;
+  applyLook(A.settings.theme, A.settings.look);
   recompute();
-  if (!A.settings.seenGuide && !A.log.length) { A.first = true; A.view = 'guide'; }
+  if (!A.settings.seenGuide && !A.log.length) { A.first = true; A.view = 'welcome'; }
   render();
   await receiveShared();
   if (!store.ok) toast('이 창에서는 기록을 저장할 수 없어요. 비공개 창이 아닌 보통 창으로 열어 주세요.', 6000);
@@ -74,8 +79,8 @@ const saveSettings = () => store.set('settings', A.settings);
 
 // ───────── 그리기 ─────────
 function render() {
-  const v = A.view === 'study' ? viewStudy() : A.view === 'end' ? viewEnd()
-    : A.view === 'guide' ? guideHTML(A.first) : A.view === 'pace' ? viewPace() : viewHome();
+  const V = { study: viewStudy, end: viewEnd, guide: () => guideHTML(false), pace: viewPace, welcome: viewWelcome, look: viewLook, ready: viewReady };
+  const v = (V[A.view] || viewHome)();
   $app.innerHTML = v;
   $app.dataset.view = A.view;
   const ta = $app.querySelector('textarea');
@@ -87,78 +92,175 @@ const stars = n => '★'.repeat(n);
 const partType = t => (t.startsWith('-') ? '접미사' : t.endsWith('-') ? '접두사' : t.includes('/') ? '어근' : '조각');
 const koMain = x => (x.ko || []).join(' · ');
 
-function viewHome() {
+// ───────── 아이콘 (선 아이콘, 글자색을 따른다) ─────────
+const svg = (d, s = 22) => `<svg aria-hidden="true" width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
+const IC = {
+  back: svg('<path d="M15 18l-6-6 6-6"></path>'),
+  bulb: svg('<path d="M9 18h6"></path><path d="M10 22h4"></path><path d="M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.2 1 2V17h6v-.3c0-.8.4-1.5 1-2A7 7 0 0 0 12 2z"></path>'),
+  cal: svg('<rect x="3" y="4" width="18" height="17" rx="3"></rect><path d="M3 9h18"></path><path d="M8 2v4"></path><path d="M16 2v4"></path>'),
+  parts: svg('<rect x="3" y="3" width="8" height="8" rx="2"></rect><rect x="13" y="13" width="8" height="8" rx="2"></rect><path d="M11 7h4a2 2 0 0 1 2 2v4"></path>'),
+  help: svg('<circle cx="12" cy="12" r="9"></circle><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6v.6"></path><path d="M12 17h.01"></path>'),
+  flame: svg('<path d="M12 22c4 0 7-3 7-7 0-4-3-6-4-10-2 2-3 4-3 6-1-1-2-2-2-4-2 2-5 5-5 8 0 4 3 7 7 7z"></path>', 16),
+  phone: svg('<rect x="6" y="2" width="12" height="20" rx="3"></rect><path d="M12 18h.01"></path>'),
+  sound: svg('<path d="M11 5L6 9H2v6h4l5 4z"></path><path d="M15.5 8.5a5 5 0 0 1 0 7"></path><path d="M19 5a10 10 0 0 1 0 14"></path>', 20),
+};
+const steps = n => `<div class="steps" aria-label="3단계 중 ${n}단계">${[1, 2, 3].map(i => `<i class="${i < n ? 'done' : i === n ? 'now' : ''}"></i>`).join('')}</div>`;
+const stepTop = (n, backAct) => `<header class="top"><button class="back" data-act="${backAct}" aria-label="뒤로">${IC.back}</button>${steps(n)}<span style="width:34px"></span></header>`;
+const fmtDate = (key, opt = { month: 'long', day: 'numeric' }) => new Date(key + 'T12:00:00').toLocaleDateString('ko-KR', opt);
+const addDays = (key, n) => { const t = new Date(key + 'T12:00:00'); t.setDate(t.getDate() + n); return dayKey(t.getTime() + 4 * 3600000); };
+const isStandalone = () => { try { return matchMedia('(display-mode: standalone)').matches || navigator.standalone === true; } catch (e) { return false; } };
+
+// ───────── 첫 시작 1: 환영 ─────────
+function viewWelcome() {
+  const n = IX.items.length.toLocaleString('ko-KR');
+  return `<section class="welcome">
+    <div class="brand"><div class="brand-mark" aria-hidden="true"><b>M</b><i></i></div><span>메디보카</span></div>
+    <div>
+      <h1 class="hero-title">의학용어 ${n}개,<br>하루 15분이면 돼요</h1>
+      <p class="lead-p">암기 연구에서 효과가 가장 높게 나온 방법만 골라 만들었어요. 읽지 말고 떠올리고, 잊기 직전에 다시 봐요.</p>
+    </div>
+    <div class="feats">
+      <div class="feat"><div class="ic">${IC.bulb}</div><div><b>먼저 떠올리기</b><span>답을 보기 전에 뜻을 떠올려요. 다시 읽기보다 훨씬 오래 남아요.</span></div></div>
+      <div class="feat"><div class="ic">${IC.cal}</div><div><b>잊기 직전에 다시</b><span>단어마다 기억 상태를 계산해 1일 → 3일 → 8일 → 3주 간격으로 다시 보여 줘요.</span></div></div>
+      <div class="feat"><div class="ic">${IC.parts}</div><div><b>조각으로 풀기</b><span>cardi/o 심장 + -itis 염증 = 심장염. 조각을 알면 처음 보는 단어도 풀려요.</span></div></div>
+    </div>
+    <p class="cite">근거: Dunlosky 외(2013) 공부법 비교 · 연속 재학습 연구 · FSRS 복습 계산 — 자세히는 시작 뒤 "사용법"에서</p>
+    <div class="bottom-cta">
+      <button class="btn primary big" data-act="tolook">시작하기</button>
+      <label class="btn ghost">다른 기기에서 쓰던 기록이 있어요<input type="file" accept=".json,application/json" data-act="file" hidden></label>
+    </div>
+  </section>`;
+}
+
+// ───────── 첫 시작 2 / 설정: 색과 모양 고르기 ─────────
+function viewLook() {
+  const d = A.draftLook;
+  const t = themeOf(d.theme);
+  return `${A.first ? stepTop(1, 'towelcome') : `<header class="top"><h1>색과 모양</h1><button class="btn small" data-act="home">닫기</button></header>`}
+  ${A.first ? '<h1 class="hero-title" style="font-size:26px">마음에 드는 색을 골라요</h1><p class="lead-p" style="margin:6px 0 16px">매일 보는 앱이니까 내 취향대로. 설정에서 언제든 바꿀 수 있어요.</p>' : ''}
+  <div class="preview" aria-label="미리 보기">
+    <div class="row-between"><b style="font-size:18px">오늘 할 일</b><span class="pill">${IC.flame}12일 연속</span></div>
+    <div class="sumcard"><div><b>32</b><span>복습</span></div><div><b>18</b><span>새 단어</span></div><div><b>15분</b><span>예상</span></div></div>
+    <span class="btn primary" style="min-height:50px">오늘 공부 시작</span>
+    <div class="grades"><span class="g g1" style="min-height:56px;font-size:13px">모름</span><span class="g g2" style="min-height:56px;font-size:13px">헷갈림</span><span class="g g3" style="min-height:56px;font-size:13px">알 것 같음</span><span class="g g4" style="min-height:56px;font-size:13px">확실히 앎</span></div>
+  </div>
+  <div class="swatches" role="radiogroup" aria-label="색 테마">
+    ${THEMES.map(x => `<button class="sw${x.id === t.id ? ' on' : ''}" role="radio" aria-checked="${x.id === t.id}" data-act="dtheme" data-arg="${x.id}"><span class="ring"><span class="dot" style="background:${x.pri}"></span></span>${x.name}</button>`).join('')}
+  </div>
+  <p class="mood">${esc(t.mood)}</p>
+  <h2 style="font-size:15px;margin:16px 0 8px">모양</h2>
+  <div class="seg" role="radiogroup" aria-label="모양">
+    ${LOOKS.map(l => `<button class="${l.id === d.look ? 'on' : ''}" role="radio" aria-checked="${l.id === d.look}" data-act="dlook" data-arg="${l.id}"><b class="${l.id === 'soft' ? 'soft-demo' : ''}">${l.name}</b><small>${l.desc}</small></button>`).join('')}
+  </div>
+  <div class="bottom-cta"><button class="btn primary big" data-act="savelook">${A.first ? '이 색으로 할게요' : '저장'}</button></div>`;
+}
+
+// ───────── 첫 시작 4: 준비 끝 ─────────
+function viewReady() {
+  const S = A.settings;
+  const today = dayKey(Date.now());
+  const info = paceInfo(IX, A.states, { pace: S.pace, scope: S.scope });
   const p = plan();
-  const scope = A.settings.scope;
-  const pr = progress(IX, A.states, scope === 'all' ? 'core' : scope);
+  const end = S.pace.mode === 'goal' ? S.pace.end : addDays(today, info.weeks * 7);
+  const iOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+  const android = /Android/i.test(navigator.userAgent);
+  const tip = isStandalone() ? '' : `<div class="tip">${IC.phone}<p><b>${iOS || android ? '홈 화면에 추가' : '앱으로 설치'}</b>하면 앱처럼 열리고 인터넷 없이도 돼요.
+    ${iOS ? '사파리 아래 공유 버튼 → "홈 화면에 추가"' : android ? '크롬 오른쪽 위 메뉴 ⋮ → "앱 설치"' : '크롬·엣지 주소창 오른쪽의 설치 버튼'}</p></div>`;
+  return `${stepTop(3, 'topace')}
+  <h1 class="hero-title" style="font-size:26px;margin-bottom:14px">준비됐어요</h1>
+  <section class="readycard">
+    <div class="big">매일 약 ${info.minutes}분</div>
+    <p>${fmtDate(end, { year: 'numeric', month: 'long', day: 'numeric' })}까지 ${SCOPES[S.scope].label} ${info.total}개를 모두 넣어요</p>
+    <div class="rows">
+      <div><span>오늘</span><span>새 단어 ${p.fresh.length}개 · 약 ${p.minutes}분</span></div>
+      <div><span>순서</span><span>조각(접두사·접미사)부터, 장별로</span></div>
+      <div><span>복습</span><span>잊기 직전에 앱이 알아서</span></div>
+    </div>
+  </section>
+  <section class="panel" style="padding:4px 16px">
+    <label class="toggle-row"><span><b style="font-size:15px">RN 영어 설명도 보기</b><br><span class="sub">영어 정의와 환자가 쓰는 말 (NCLEX 대비)</span></span>
+      <input type="checkbox" data-act="rnbox"${S.rn ? ' checked' : ''}></label>
+    <div class="set" style="grid-template-columns:auto 1fr;align-items:center"><span>이 기기</span><div style="justify-content:flex-end">
+      ${['폰', '태블릿', '컴퓨터'].map(x => `<button class="chip${S.label === x ? ' on' : ''}" data-act="label" data-arg="${x}">${x}</button>`).join('')}</div></div>
+  </section>
+  ${tip}
+  <div class="bottom-cta"><button class="btn primary big" data-act="finish">첫 공부 시작</button></div>`;
+}
+
+// ───────── 홈 (다음부터 열면 바로 보이는 화면) ─────────
+function viewHome() {
+  const S = A.settings;
+  const p = plan();
   const st = streak(A.log);
   const resume = A.sess && !isDone(A.sess);
   const total = p.reviews.length + p.fresh.length;
   const doneToday = !resume && total === 0;
-  const pct = n => (pr.total ? (n / pr.total) * 100 : 0);
   const inKakao = /KAKAOTALK/i.test(navigator.userAgent);
+  const now = new Date();
+  const dateLine = now.toLocaleDateString('ko-KR', { month: 'long', day: 'numeric', weekday: 'long' });
 
-  let today;
+  let hero;
   if (resume) {
     const left = A.sess.queue.length + (A.sess.finalsAdded ? 0 : A.sess.finals.length);
-    today = `<p class="big-line">하던 공부가 있어요</p><p class="sub">${A.sess.doneCards} / ${A.sess.total}장 봤어요 · 남은 카드 ${left}장</p>
+    hero = `<p class="big-line">하던 공부가 있어요</p><p class="sub">${A.sess.doneCards} / ${A.sess.total}장 봤어요 · 남은 카드 ${left}장</p>
       <button class="btn primary big" data-act="resume">이어서 하기</button>
       <button class="btn ghost" data-act="drop">처음부터 다시 정하기</button>`;
   } else if (doneToday) {
-    today = `<p class="big-line">오늘 할 일 끝! 🎉</p><p class="sub">내일 다시 만나요. 더 하고 싶으면 새 단어를 조금 더 넣을 수 있어요.</p>
+    hero = `<p class="big-line">오늘 할 일 끝!</p><p class="sub">내일 다시 만나요. 더 하고 싶으면 새 단어를 조금 더 넣을 수 있어요.</p>
       <button class="btn primary big" data-act="more">새 단어 ${RULES.batch}개 더</button>`;
   } else {
-    today = `<p class="big-line">복습 <b>${p.reviews.length}</b> · 새 단어 <b>${p.fresh.length}</b> · 약 ${p.minutes}분</p>
+    hero = `<div class="hero-stats"><div><b>${p.reviews.length}</b><span>복습</span></div><div><b>${p.fresh.length}</b><span>새 단어</span></div><div><b>${p.minutes}<small>분</small></b><span>예상 시간</span></div></div>
       ${p.backlog ? '<p class="note">밀린 복습이 많아서 오늘은 새 단어를 쉬어 가요.</p>' : ''}
-      ${p.goal && p.goal.reviewPhase ? '<p class="note">목표일 전 복습만 하는 기간이에요. 새 단어는 없어요.</p>' : ''}
-      ${p.goal && p.goal.ended ? '<p class="note">목표 날짜가 지났어요. 지금은 하루 50장으로 해요. 공부 계획에서 새로 정해 보세요.</p>' : ''}
+      ${p.goal && p.goal.reviewPhase ? '<p class="note">목표일 전 복습만 하는 기간이에요.</p>' : ''}
+      ${p.goal && p.goal.ended ? '<p class="note">목표 날짜가 지났어요. 공부 계획에서 새로 정해 보세요.</p>' : ''}
       ${p.dueTotal > p.reviews.length ? `<p class="note">남은 복습 ${p.dueTotal - p.reviews.length}장은 내일로 나눠요.</p>` : ''}
       <button class="btn primary big" data-act="start">오늘 공부 시작</button>
-      <button class="btn ghost" data-act="quick"${p.dueTotal ? '' : ' disabled'}>3분 모드 · 복습 ${Math.min(RULES.quickCards, p.dueTotal)}장</button>`;
+      ${p.dueTotal ? `<button class="btn ghost" data-act="quick" style="margin-top:-6px">3분만 하기 · 복습 ${Math.min(RULES.quickCards, p.dueTotal)}장</button>` : ''}`;
   }
 
+  // 계획 진도
+  const info = paceInfo(IX, A.states, { pace: S.pace, scope: S.scope });
+  const pr = progress(IX, A.states, S.scope);
+  const done = pr.mastered + pr.long;
+  const pct = pr.total ? Math.round((done / pr.total) * 100) : 0;
+  const speed = S.pace.mode === 'goal'
+    ? (info.ended ? `${fmtDate(S.pace.end)}까지 (지남)` : `${fmtDate(S.pace.end)}까지 · D-${info.daysLeft}`)
+    : `하루 ${S.pace.cards}장 · 약 ${info.minutes}분`;
+
+  // 이번 주 (월~일)
+  const days = new Set(A.log.map(e => dayKey(e.t)));
+  const today = dayKey(Date.now());
+  const dow = (new Date(today + 'T12:00:00').getDay() + 6) % 7;
+  const week = ['월', '화', '수', '목', '금', '토', '일'].map((n, i) => {
+    const k = addDays(today, i - dow);
+    const cls = days.has(k) ? 'done' : k === today ? 'today' : '';
+    return `<div>${n}<i class="${cls}">${days.has(k) ? '✓' : ''}</i></div>`;
+  }).join('');
+
   return `
-  <header class="top"><h1>메디보카</h1><div class="top-r"><span class="streak" title="연속 공부일">🔥 ${st}일</span>
-    <button class="btn small" data-act="guide">사용법</button></div></header>
+  <header class="top home-top"><div><span class="date">${dateLine}</span><h1>오늘 할 일</h1></div>
+    <div class="top-r">${st ? `<span class="pill">${IC.flame}${st}일 연속</span>` : ''}<button class="icon-round" data-act="guide" aria-label="사용법">${IC.help}</button></div></header>
   ${inKakao ? '<div class="warn">카카오톡 안에서 열렸어요. 여기서 공부하면 기록이 따로 저장돼요. 오른쪽 위 메뉴에서 <b>다른 브라우저로 열기</b>를 눌러 주세요.</div>' : ''}
-  <section class="panel today">${today}</section>
-  ${planCard()}
+  <section class="hero">${hero}</section>
   <section class="panel">
-    <div class="row-between"><h2>${scope === 'star3' ? '★★★' : '핵심'} 단어 진도</h2><span class="sub">${pr.mastered + pr.long} / ${pr.total} 익힘</span></div>
-    <div class="bar" aria-hidden="true">
-      <i class="s-long" style="width:${pct(pr.long)}%"></i><i class="s-mastered" style="width:${pct(pr.mastered)}%"></i><i class="s-learning" style="width:${pct(pr.learning)}%"></i>
+    <div class="plan-row">
+      <div class="ring" style="background:conic-gradient(var(--pri) 0 ${pct}%, var(--tint) ${pct}% 100%)" aria-hidden="true"><span>${pct}%</span></div>
+      <div class="txt">
+        <div class="row-between"><b>공부 계획</b><button class="link" data-act="pace">바꾸기</button></div>
+        <span>${SCOPES[S.scope].label} ${pr.total}개 중 <b>${done}개 익힘</b></span>
+        <span class="sub">${speed}</span>
+      </div>
     </div>
-    <ul class="legend">
-      <li><i class="s-new"></i>새 단어 ${pr.new}</li><li><i class="s-learning"></i>배우는 중 ${pr.learning}</li>
-      <li><i class="s-mastered"></i>익힘 ${pr.mastered}</li><li><i class="s-long"></i>오래 기억 ${pr.long}</li>
-    </ul>
-    ${pr.suggestNext ? '<p class="note">핵심의 80%를 익혔어요! 이제 확장 단어(★)도 함께 나와요.</p>' : ''}
+    <p class="note" style="margin-top:10px">새 단어 ${pr.new} · 배우는 중 ${pr.learning} · 익힘 ${pr.mastered} · 오래 기억 ${pr.long}</p>
+    ${pr.suggestNext && S.scope !== 'all' ? '<p class="note">이 범위의 80%를 익혔어요! 공부 계획에서 범위를 넓혀 보세요.</p>' : ''}
   </section>
+  <section class="panel"><div class="row-between"><b>이번 주</b><span class="sub">${st ? `${st}일째 이어서 하는 중` : '오늘부터 시작해요'}</span></div><div class="week">${week}</div></section>
   <nav class="tabs">
-    <button class="tab${A.sheet === 'backup' ? ' on' : ''}" data-act="sheet" data-arg="backup">백업 · 옮기기</button>
+    <button class="tab${A.sheet === 'backup' ? ' on' : ''}" data-act="sheet" data-arg="backup">폰 ↔ 컴퓨터 옮기기</button>
     <button class="tab${A.sheet === 'settings' ? ' on' : ''}" data-act="sheet" data-arg="settings">설정</button>
   </nav>
   ${A.sheet === 'backup' ? viewBackup() : A.sheet === 'settings' ? viewSettings() : ''}
-  <p class="foot">단어 ${IX.items.length}개 · 기록 ${A.log.length}줄 · 이 기기: ${esc(A.settings.label)}</p>`;
-}
-
-// 홈의 "공부 계획" 칸
-function planCard() {
-  const S = A.settings;
-  const info = paceInfo(IX, A.states, { pace: S.pace, scope: S.scope });
-  let speed;
-  if (S.pace.mode === 'goal') {
-    const end = new Date(S.pace.end + 'T12:00:00').toLocaleDateString('ko-KR', { month: 'long', day: 'numeric' });
-    speed = info.ended ? `${end}까지 (지남)` : `${end}까지 · D-${info.daysLeft} · 하루 새 단어 ${info.perDay}개`;
-  } else {
-    const ps = PACES.find(x => x.cards === S.pace.cards);
-    speed = `${ps ? ps.label + ' · ' : ''}하루 ${S.pace.cards}장 · 약 ${info.minutes}분`;
-  }
-  return `<section class="panel plan">
-    <div class="row-between"><h2>공부 계획</h2><button class="link" data-act="pace">바꾸기</button></div>
-    <p><b>${SCOPES[S.scope].label}</b> ${info.total}개 중 남은 새 단어 ${info.remaining}개</p>
-    <p class="sub">${speed}${S.pace.mode !== 'goal' && info.remaining ? ` · 약 ${info.weeks}주면 다 넣어요` : ''}</p>
-  </section>`;
+  <p class="foot">단어 ${IX.items.length}개 · 기록 ${A.log.length}줄 · 이 기기: ${esc(S.label)}</p>`;
 }
 
 // 공부 계획 화면: 무엇을(범위) · 얼마나 빨리(하루 장수 또는 날짜)
@@ -169,42 +271,49 @@ function viewPace() {
       <span class="dot"></span><span><b>${title}</b><small>${desc}</small></span></button>`;
   const scopes = Object.entries(SCOPES).map(([k, v]) => {
     const n = scopeSet(IX, k).size;
-    const left = paceInfo(IX, A.states, { scope: k }).remaining;
     const desc = k === 'star3' ? '시험이 급할 때. 가장 자주 나오는 것부터' : k === 'core' ? '1학년 의학용어 수업 범위 (★ 확장은 빼고)' : '핵심을 다 넣은 뒤 확장(★)까지';
-    return opt('dscope', k, d.scope === k, `${v.label} · ${n}개${left < n ? ` (남은 ${left})` : ''}`, desc);
+    return opt('dscope', k, d.scope === k, `${v.label} · ${n}개`, desc);
   }).join('');
   const daily = PACES.map(x => {
-    const info = paceInfo(IX, A.states, { pace: { mode: 'daily', cards: x.cards }, scope: d.scope });
     const on = d.pace.mode === 'daily' && d.pace.cards === x.cards;
-    return opt('dpace', x.cards, on, `${x.label} · 하루 ${x.cards}장${x.cards === RULES.dailyCards ? ' (추천)' : ''}`,
-      `하루 약 ${minutesForCards(x.cards)}분 · 남은 단어를 약 ${info.weeks}주에 다 넣어요`);
+    return opt('dpace', x.cards, on, `${x.label} · 하루 ${x.cards}장${x.cards === RULES.dailyCards ? ' (추천)' : ''}`, `하루 약 ${minutesForCards(x.cards)}분`);
   }).join('');
   const goalOn = d.pace.mode === 'goal';
+  const info = paceInfo(IX, A.states, { pace: d.pace, scope: d.scope });
   let goal = '';
   if (goalOn) {
-    const info = d.pace.end ? paceInfo(IX, A.states, { pace: d.pace, scope: d.scope }) : null;
-    const wk = n => { const t = new Date(today + 'T12:00:00'); t.setDate(t.getDate() + n * 7); return dayKey(t.getTime() + 4 * 3600000); };
     goal = `<div class="goalbox">
-      <label class="datel">끝낼 날짜 (시험일)<input type="date" data-act="dend" min="${dayKey(Date.now() + 86400000)}" value="${esc(d.pace.end || '')}"></label>
-      <div class="chips">${[4, 8, 12, 16].map(n => `<button class="chip${d.pace.end === wk(n) ? ' on' : ''}" data-act="dweeks" data-arg="${n}">${n}주 뒤</button>`).join('')}</div>
-      ${info ? (info.ended ? '<p class="note warn-t">오늘보다 뒤 날짜를 골라 주세요.</p>' : `
-        <p class="calc">하루 새 단어 <b>${info.perDay}</b>개 · 하루 약 <b>${info.minutes}</b>분</p>
+      <label class="datel">끝낼 날짜 (시험일)<input type="date" data-act="dend" min="${addDays(today, 1)}" value="${esc(d.pace.end || '')}"></label>
+      <div class="chips">${[4, 8, 12, 16].map(n => `<button class="chip${d.pace.end === addDays(today, n * 7) ? ' on' : ''}" data-act="dweeks" data-arg="${n}">${n}주 뒤</button>`).join('')}</div>
+      ${d.pace.end ? (info.ended ? '<p class="note warn-t">오늘보다 뒤 날짜를 골라 주세요.</p>' : `
         <p class="note">${info.daysLeft}일 남음 · 새 단어는 ${info.newDays}일 동안 넣고, 마지막 ${info.reviewOnly}일은 복습만 해요.</p>
         ${info.heavy ? `<p class="note warn-t">하루 40분이 넘어요.${d.scope !== 'star3' ? ' <button class="link" data-act="dscope" data-arg="star3">★★★만 먼저</button> 하는 걸 권해요.' : ' 날짜를 조금 늦출 수 있는지 봐 주세요.'}</p>` : ''}`)
       : '<p class="note">날짜를 고르면 하루에 몇 개씩 넣을지 계산해요.</p>'}
     </div>`;
   }
-  return `
-  <header class="top"><h1>공부 계획</h1>${A.first ? '' : '<button class="btn small" data-act="home">닫기</button>'}</header>
+  // 요약: 하루 시간 · 하루 새 단어 · 다 넣는 날
+  let sum = '';
+  if (!goalOn || (d.pace.end && !info.ended)) {
+    const perDay = goalOn ? info.perDay : Math.round(d.pace.cards * 0.18);
+    const end = goalOn ? d.pace.end : addDays(today, info.weeks * 7);
+    sum = `<section class="panel"><div class="sumcard">
+      <div><b>${info.minutes}분</b><span>하루 공부</span></div>
+      <div><b>${goalOn ? '' : '약 '}${perDay}개</b><span>하루 새 단어</span></div>
+      <div><b>${fmtDate(end)}</b><span>다 넣는 날</span></div>
+    </div><p class="note" style="margin-top:10px">하루 장수는 복습 + 새 단어예요. 복습을 먼저 채우고 남는 자리에 새 단어가 들어가요.</p></section>`;
+  }
+  const disabled = goalOn && (!d.pace.end || d.pace.end <= today);
+  return `${A.first ? stepTop(2, 'tolook') : '<header class="top"><h1>공부 계획</h1><button class="btn small" data-act="home">닫기</button></header>'}
+  ${A.first ? '<h1 class="hero-title" style="font-size:26px;margin-bottom:14px">언제까지 외울까요?</h1>' : ''}
   <section class="panel"><h2>무엇을 공부할까요?</h2><div class="opts">${scopes}</div></section>
   <section class="panel"><h2>얼마나 빨리 할까요?</h2>
     <div class="opts">${daily}
       ${opt('dgoal', '', goalOn, '날짜까지 끝내기', '시험일을 넣으면 하루 새 단어 수를 계산해요')}
     </div>${goal}
-    ${goalOn ? '' : '<p class="note">하루 장수는 복습 + 새 단어예요. 복습을 먼저 채우고 남는 자리에 새 단어가 들어가요.</p>'}
   </section>
-  <p class="note center">계획을 바꿔도 지금까지 공부한 기록은 그대로예요.</p>
-  <div class="checks one"><button class="btn primary big" data-act="savepace"${goalOn && (!d.pace.end || d.pace.end <= today) ? ' disabled' : ''}>이 계획으로 공부하기</button></div>`;
+  ${sum}
+  ${A.first ? '' : '<p class="note center">계획을 바꿔도 지금까지 공부한 기록은 그대로예요.</p>'}
+  <div class="bottom-cta"><button class="btn primary big" data-act="savepace"${disabled ? ' disabled' : ''}>${A.first ? '이 계획으로 하기' : '저장'}</button></div>`;
 }
 
 function viewBackup() {
@@ -231,12 +340,17 @@ function viewSettings() {
   const chip = (act, val, cur, label) => `<button class="chip${cur ? ' on' : ''}" data-act="${act}" data-arg="${val}">${label}</button>`;
   return `<section class="panel sheet">
     <h2>설정</h2>
+    <div class="set"><span>색</span><div>
+      ${THEMES.map(x => `<button class="sw${x.id === s.theme ? ' on' : ''}" aria-label="${x.name}" data-act="theme" data-arg="${x.id}"><span class="ring"><span class="dot" style="background:${x.pri}"></span></span>${x.name}</button>`).join('')}
+    </div></div>
+    <div class="set"><span>모양</span><div>${LOOKS.map(l => chip('look', l.id, s.look === l.id, l.name)).join('')}</div></div>
+    <div class="set"><span>공부 계획</span><div><button class="chip" data-act="pace">범위·속도 바꾸기</button></div></div>
     <div class="set"><span>목표 기억률</span><div>
       ${chip('ret', 0.85, s.retention === 0.85, '85% 여유')}${chip('ret', 0.9, s.retention === 0.9, '90% 기본')}${chip('ret', 0.95, s.retention === 0.95, '95% 시험 주간')}
     </div><p class="note">높일수록 더 자주 복습해요.</p></div>
     <div class="set"><span>RN 영어 설명</span><div>${chip('rn', 1, s.rn, '켜기')}${chip('rn', 0, !s.rn, '끄기')}</div></div>
     <div class="set"><span>발음 속도</span><div>${chip('rate', 0.7, s.rate === 0.7, '느리게')}${chip('rate', 0.85, s.rate === 0.85, '보통')}${chip('rate', 1, s.rate === 1, '빠르게')}</div></div>
-    <div class="set"><span>이 기기 이름</span><div>${chip('label', '폰', s.label === '폰', '폰')}${chip('label', '태블릿', s.label === '태블릿', '태블릿')}${chip('label', '컴퓨터', s.label === '컴퓨터', '컴퓨터')}${chip('label', '노트북', s.label === '노트북', '노트북')}</div>
+    <div class="set"><span>이 기기 이름</span><div>${['폰', '태블릿', '컴퓨터', '노트북'].map(x => chip('label', x, s.label === x, x)).join('')}</div>
       <p class="note">백업 파일 이름에 붙어요.</p></div>
   </section>`;
 }
@@ -262,7 +376,7 @@ function viewStudy() {
     <div class="meta">${tag}<span>${KIND[x.k]} · ${stars(x.star)} · ${esc(unit.short)}</span></div>
     <div class="word" lang="en">${esc(x.t)}</div>
     <div class="face-tools">
-      <button class="icon-btn" data-act="say" title="발음 듣기 (P)" aria-label="발음 듣기">🔊</button>
+      <button class="icon-btn" data-act="say" title="발음 듣기 (P)" aria-label="발음 듣기">${IC.sound}</button>
       ${A.phase === 'front' ? `<button class="icon-btn" data-act="hint" title="조각 힌트 (H)">${A.hint ? hint : '조각 힌트'}</button>` : ''}
     </div>
     ${A.phase === 'front' && isNew ? '<p class="note center">처음 보는 단어예요. 조각으로 뜻을 짐작해 보고 고르세요.</p>' : ''}
@@ -440,6 +554,7 @@ const ACT = {
   resume: () => { A.view = 'study'; A.phase = 'front'; render(); },
   drop: async () => { A.sess = null; await saveSession(); render(); },
   home: () => {
+    if (A.view === 'look') applyLook(A.settings.theme, A.settings.look);
     A.view = 'home'; A.phase = 'front'; A.summary = null; A.editNote = false; A.draft = null;
     render();
     if (A.sess && !isDone(A.sess)) toast('하던 곳이 저장됐어요');
@@ -479,13 +594,31 @@ const ACT = {
     render();
     toast('내 암기법을 저장했어요');
   },
-  guide: () => { A.view = 'guide'; A.first = false; render(); window.scrollTo(0, 0); },
-  firstplan: async () => { A.settings.seenGuide = true; await saveSettings(); ACT.pace(); },
+  guide: () => { A.view = 'guide'; render(); window.scrollTo(0, 0); },
+  // 첫 시작 흐름
+  towelcome: () => go('welcome'),
+  tolook: () => { A.draftLook = { theme: A.settings.theme, look: A.settings.look }; go('look'); },
+  topace: () => ACT.pace(),
+  dtheme: id => { A.draftLook.theme = id; applyLook(id, A.draftLook.look); render(); },
+  dlook: id => { A.draftLook.look = id; applyLook(A.draftLook.theme, id); render(); },
+  savelook: async () => {
+    A.settings.theme = A.draftLook.theme;
+    A.settings.look = A.draftLook.look;
+    await saveSettings();
+    if (A.first) ACT.pace();
+    else { go('home'); toast('색과 모양을 바꿨어요'); }
+  },
+  finish: async () => {
+    A.settings.seenGuide = true;
+    await saveSettings();
+    A.first = false;
+    startSession(plan(), 'daily');
+  },
+  theme: async id => { A.settings.theme = id; applyLook(id, A.settings.look); await saveSettings(); render(); },
+  look: async id => { A.settings.look = id; applyLook(A.settings.theme, id); await saveSettings(); render(); },
   pace: () => {
     A.draft = { scope: A.settings.scope, pace: { ...A.settings.pace } };
-    A.view = 'pace';
-    render();
-    window.scrollTo(0, 0);
+    go('pace');
   },
   dscope: k => { if (SCOPES[k]) { A.draft.scope = k; render(); } },
   dpace: n => { A.draft.pace = { mode: 'daily', cards: Number(n) }; render(); },
@@ -501,13 +634,10 @@ const ACT = {
     if (d.pace.mode === 'goal') d.pace.start = dayKey(Date.now());
     A.settings.scope = d.scope;
     A.settings.pace = d.pace;
-    A.settings.seenGuide = true;
     await saveSettings();
-    A.first = false;
     A.draft = null;
-    A.view = 'home';
-    render();
-    window.scrollTo(0, 0);
+    if (A.first) { go('ready'); return; }
+    go('home');
     toast('공부 계획을 정했어요');
   },
   sheet: k => { A.sheet = A.sheet === k ? null : k; render(); },
@@ -518,6 +648,13 @@ const ACT = {
   send: () => sendBackup(),
 };
 
+
+function go(view) {
+  if (view === 'home' && A.view === 'look' && A.draftLook) applyLook(A.settings.theme, A.settings.look); // 저장 안 하고 닫으면 원래 색으로
+  A.view = view;
+  render();
+  window.scrollTo(0, 0);
+}
 
 // ───────── 백업 ─────────
 async function sendBackup() {
@@ -554,7 +691,7 @@ async function importText(text) {
   const nm = mergeNotes(A.notes, o.notes);
   if (nm.changed) { A.notes = nm.notes; await store.set('notes', A.notes); }
   recompute();
-  render();
+  if (A.view === 'welcome') ACT.tolook(); else render();
   const from = o.label ? `(${o.label}에서 보냄) ` : '';
   toast(added.length || nm.changed
     ? `${from}기록 ${added.length}줄을 합쳤어요${nm.changed ? ` · 내 암기법 ${nm.changed}개` : ''}`
@@ -601,6 +738,7 @@ document.addEventListener('click', e => {
 });
 document.addEventListener('change', e => {
   if (e.target.matches('input[type=file][data-act=file]')) { importFile(e.target.files[0]); e.target.value = ''; }
+  if (e.target.matches('input[type=checkbox][data-act=rnbox]')) { A.settings.rn = e.target.checked; saveSettings(); }
   if (e.target.matches('input[type=date][data-act=dend]') && A.draft) {
     A.draft.pace = { mode: 'goal', end: e.target.value };
     render();
