@@ -337,3 +337,18 @@ test('답별 목록: 마지막 답과 한 번이라도', () => {
   assert.deepEqual(marksList(m, 1, 'ever').map(z => z.id), ['w:b', 'w:a']);
   assert.deepEqual(marksList(m, 2).map(z => z.id), ['w:c']);
 });
+
+import { listOrder } from '../src/engine.js';
+test('내 단어 목록 순서: 넣은 순서·단원 순서·조각은 단어 앞', () => {
+  const ix = buildIndex(UNITS, PAIRS, CONFUSIONS);
+  const w = ix.items.filter(x => x.k === 'word' && (x.parts || []).length >= 2);
+  const a = w[w.length - 1], b = w[0];
+  const added = listOrder(ix, [a.id, b.id], { mode: 'added' });
+  assert.ok(added.indexOf(a.id) < added.indexOf(b.id));
+  for (const f of a.parts) if (ix.byId.has('p:' + f)) assert.ok(added.indexOf('p:' + f) < added.indexOf(a.id));
+  const units = [...ix.units.map(u => u.id)].reverse();
+  const byUnit = listOrder(ix, [a.id, b.id], { mode: 'units', units });
+  assert.ok(byUnit.indexOf(a.id) < byUnit.indexOf(b.id));
+  ix.myList = [a.id, b.id]; ix.myOrder = { mode: 'added' };
+  assert.deepEqual(newOrder(ix, 'my'), added);
+});

@@ -299,6 +299,12 @@ details.units .chip { min-height: 38px; }
 .stepper .icon-btn { width: 40px; height: 40px; min-height: 40px; padding: 0; font-size: 20px; justify-content: center; }
 .stepper b { font-size: 18px; min-width: 44px; text-align: center; }
 
+.unit-order { list-style: none; padding: 0; margin: 10px 0 0; display: grid; gap: 4px; }
+.unit-order li { display: flex; align-items: center; gap: 6px; padding: 4px 4px 4px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); }
+.unit-order li span { flex: 1; font-size: 14.5px; }
+.unit-order .icon-btn { width: 40px; height: 36px; min-height: 36px; padding: 0; justify-content: center; }
+.unit-order .icon-btn:disabled { opacity: .3; }
+
 /* 준비 끝 */
 .readycard { background: var(--pri); color: var(--pri-ink); border-radius: calc(var(--r-card) + 4px); padding: 22px; display: grid; gap: 12px; margin-bottom: 12px; }
 .readycard .big { font-family: var(--display); font-weight: var(--display-w); font-size: 38px; line-height: 1.1; letter-spacing: -0.03em; }

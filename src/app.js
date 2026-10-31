@@ -3,7 +3,7 @@ import { UNITS, PAIRS, CONFUSIONS } from '../data/index.js';
 import { buildIndex } from './data.js';
 import {
   RULES, replay, planToday, newOrder, newSession, current, answer, isDone,
-  progress, streak, daySummary, dayKey, MARKS, answerMarks, marksList, PACES, paceInfo, scopeSet, scopeLabel, normScope, scopeUnits, makeScope, overview,
+  progress, streak, daySummary, dayKey, LIST_ORDERS, MARKS, answerMarks, marksList, PACES, paceInfo, scopeSet, scopeLabel, normScope, scopeUnits, makeScope, overview,
   minutesForCards, daysBetween,
 } from './engine.js';
 import { guideHTML } from './guide.js';
@@ -92,7 +92,7 @@ const DEFAULT_MY_PACE = { mode: 'daily', cards: 50 };
 const curL = () => { const L = A.settings.lists || []; return L.find(l => l.id === A.settings.curList) || L[0] || null; };
 const myIds = () => (curL() ? curL().ids : []);
 const myName = () => (curL() ? curL().name : '내 단어');
-function syncMy() { IX.myList = myIds(); delete ORDERS.my; }
+function syncMy() { IX.myList = myIds(); IX.myOrder = curL() ? curL().order : null; delete ORDERS.my; }
 function newList(name) {
   const L = A.settings.lists || (A.settings.lists = []);
   let n = L.length + 1; while (L.some(l => l.name === `내 단어 ${n}`)) n++;
@@ -104,13 +104,14 @@ function newList(name) {
 function draftKeepMy() { const d = A.draft; if (d && d.scope === 'my' && curL()) (d.myPaces || (d.myPaces = {}))[curL().id] = d.pace; }
 function draftLoadMy() { const d = A.draft; if (d && d.scope === 'my' && curL()) d.pace = { ...((d.myPaces && d.myPaces[curL().id]) || curL().pace || DEFAULT_MY_PACE) }; }
 function setMyIds(ids) { const l = curL() || newList(); l.ids = ids; syncMy(); }
+const orderName = l => { const o = (l && l.order) || { mode: 'rec' }; return (LIST_ORDERS.find(z => z[0] === o.mode) || LIST_ORDERS[0])[1]; };
 // 목록 고르기 줄: 목록 칩 + 새 목록 + 이름 바꾸기·지우기
 function listBar() {
   const L = A.settings.lists || [];
   const c = curL();
   return `<div class="listbar"><div class="chips">${L.map(l => `<button class="chip${c && l.id === c.id ? ' on' : ''}" data-act="lsel" data-arg="${l.id}">${esc(l.name)} · ${l.ids.length}</button>`).join('')}
     <button class="chip add" data-act="lnew">+ 새 목록</button></div>
-    ${c ? `<div class="listbar-tools"><button class="link" data-act="lren">이름 바꾸기</button> · <button class="link" data-act="ldel">목록 지우기</button></div>` : ''}</div>`;
+    ${c ? `<div class="listbar-tools">순서: ${orderName(c)} · <button class="link" data-act="lren">이름 바꾸기</button> · <button class="link" data-act="ldel">목록 지우기</button></div>` : ''}</div>`;
 }
 const AP = () => A.settings.track === 'my' && myIds().length
   ? { track: 'my', scope: 'my', pace: curL().pace || DEFAULT_MY_PACE }
@@ -401,9 +402,11 @@ function viewPace() {
   const disabled = !(d.pace.mode === 'daily' || (cur && !cur.ended)) || sel.total === 0;
   return `${A.first ? stepTop(2, 'tolook') : '<header class="top"><h1>공부 계획</h1><button class="btn small" data-act="home">닫기</button></header>'}
   ${A.first ? '<h1 class="hero-title" style="font-size:26px;margin-bottom:14px">공부 계획을 세워요</h1>' : ''}
-  <section class="panel order-line"><b>공부 순서: 추천 순서</b>
+  ${isMy && curL() ? `<section class="panel order-line"><div class="row-between"><b>공부 순서: ${orderName(curL())}</b><button class="link" data-act="pick" data-arg="pace">바꾸기</button></div>
+    <p class="note" style="margin-top:4px">"${esc(myName())}" 목록의 순서예요. 단어 고르는 화면 아래에서 바꿔요.</p></section>`
+  : `<section class="panel order-line"><b>공부 순서: 추천 순서</b>
     <p class="sub" style="margin-top:2px">조각 → 인체 → 계통별(근골격 → 심혈관 → … → 피부) → 약어</p>
-    <p class="note" style="margin-top:4px">의학용어 수업에서 가장 흔한 순서예요. 교재 순서로 바꾸는 기능은 곧 더해요.</p></section>
+    <p class="note" style="margin-top:4px">의학용어 수업에서 가장 흔한 순서예요. 교재 순서로 하려면 "내 단어" 목록을 만들 때 순서를 고르세요.</p></section>`}
   <section class="panel"><div class="row-between"><h2>① 무엇을 외울까요?</h2><span class="sub">${sel.total}개${sel.remaining < sel.total ? ` · 남은 ${sel.remaining}` : ''}</span></div>
     <div class="seg" style="margin:8px 0 10px">
       <button class="${isMy ? '' : 'on'}" data-act="dscopemode" data-arg="rec"><b>추천 범위</b><small>중요도·단원으로</small></button>
@@ -1273,11 +1276,23 @@ function viewPick() {
       ${k.pasteMsg ? `<p class="note">${k.pasteMsg}</p>` : ''}
     </details>
   </section>
+  ${k.study ? '' : orderPanel(k)}
   <div id="pklist">${pkListHTML()}</div>
   ${k.study
     ? `<div class="bottom-cta pk-save"><p class="pk-count-line" id="pkcount">${pkCountText()}</p>
         <div class="pk-two"><button class="btn" data-act="pkaddmy">내 단어에 더하기</button>${k.quiz ? '<button class="btn primary big" data-act="pkquiz">이 단어로 시험</button>' : '<button class="btn primary big" data-act="pkstudy">지금 공부</button>'}</div></div>`
     : `<div class="bottom-cta pk-save"><button class="btn primary big" data-act="pksave"><span id="pkcount">${pkCountText()}</span> · 저장</button></div>`}`;
+}
+// 이 목록의 공부 순서(교재 순서는 '넣은 순서'나 '단원 순서 직접'으로)
+function orderPanel(k) {
+  const o = k.order || { mode: 'rec' };
+  const unitsOrd = o.units || IX.units.map(u => u.id);
+  return `<section class="panel"><h2>이 목록의 공부 순서</h2>
+    <p class="note">교재 순서로 하려면 교재 목차대로 단원 순서를 바꾸거나, 교재·교수님 목록을 순서대로 붙여 넣고 "넣은 순서"를 고르세요.</p>
+    <div class="opts" style="margin-top:8px">${LIST_ORDERS.map(([m, l, d]) => `<button class="opt${o.mode === m ? ' on' : ''}" data-act="pkord" data-arg="${m}"><span class="dot"></span><span class="grow"><b>${l}</b><small>${d}</small></span></button>`).join('')}</div>
+    ${o.mode === 'units' ? `<ol class="unit-order">${unitsOrd.map((id, i) => { const u = IX.units.find(z => z.id === id); return `<li><span>${i + 1}. ${esc(u.short)}</span>
+      <button class="icon-btn" data-act="pkup" data-arg="${i}" aria-label="위로"${i ? '' : ' disabled'}>↑</button><button class="icon-btn" data-act="pkdown" data-arg="${i}" aria-label="아래로"${i < unitsOrd.length - 1 ? '' : ' disabled'}>↓</button></li>`; }).join('')}</ol>` : ''}
+  </section>`;
 }
 function pkRefreshList() {
   const el = document.getElementById('pklist');
@@ -1291,7 +1306,7 @@ Object.assign(ACT, {
     if (back === 'quiz') { ACT.pick('study'); A.pk.quiz = true; A.pk.back = 'qset'; render(); return; }
     const study = back === 'study';
     if (!study && !curL()) newList();
-    A.pk = { sel: new Set(study ? [] : myIds()), q: '', kind: '', star: '', status: '', unit: '', grp: '', open: new Set(), back: study ? 'home' : back || A.view, study };
+    A.pk = { order: !study && curL() ? { ...(curL().order || { mode: 'rec' }) } : { mode: 'rec' }, sel: new Set(study ? [] : myIds()), q: '', kind: '', star: '', status: '', unit: '', grp: '', open: new Set(), back: study ? 'home' : back || A.view, study };
     go('pickw');
   },
   pkstudy: () => {
@@ -1346,7 +1361,11 @@ Object.assign(ACT, {
     render();
   },
   pkcancel: () => go(A.pk.back || 'home'),
+  pkord: m => { A.pk.order = { ...A.pk.order, mode: m }; if (m === 'units' && !A.pk.order.units) A.pk.order.units = IX.units.map(u => u.id); render(); },
+  pkup: i => { const u = A.pk.order.units; i = Number(i); if (i > 0) [u[i - 1], u[i]] = [u[i], u[i - 1]]; render(); },
+  pkdown: i => { const u = A.pk.order.units; i = Number(i); if (i < u.length - 1) [u[i + 1], u[i]] = [u[i], u[i + 1]]; render(); },
   pksave: async () => {
+    if (curL()) curL().order = A.pk.order;
     setMyIds([...A.pk.sel]);
     await saveSettings();
     if (A.pk.back === 'pace' && A.draft) A.draft.scope = myIds().length ? 'my' : A.draft.scope;

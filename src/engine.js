@@ -102,6 +102,7 @@ export function retrievability(s, now, retention = 0.9) {
 // 장 순서대로, 장 안에서는 조각 → 단어(같은 어근끼리) → 약어. 핵심(core)을 다 넣은 뒤 확장(ext).
 // 단어에 들어가는 조각은 그 단어보다 먼저 온다(다른 장·확장 조각이라도).
 export function newOrder(index, scope = 'all') {
+  if (scope === 'my' && index.myOrder && index.myOrder.mode && index.myOrder.mode !== 'rec') return listOrder(index, index.myList || [], index.myOrder);
   const keep = normScope(scope) === '321' ? null : scopeSet(index, scope);
   const out = [];
   const placed = new Set();
@@ -496,4 +497,39 @@ export function answerMarks(log) {
 // mode 'last' = 마지막에 누른 답이 b, 'ever' = 한 번이라도 b. 최근 순.
 export function marksList(marks, b, mode = 'last') {
   return [...marks.values()].filter(m => (mode === 'ever' ? m.n[b] > 0 : m.last === b)).sort((x, y) => y.lastT - x.lastT);
+}
+
+// ───────── 내 단어 목록의 공부 순서 ─────────
+// mode: 'rec' 추천 순서 | 'added' 넣은 순서(교재·교수님 목록을 붙여 넣은 순서 그대로) | 'units' 단원 순서 직접(units = 단원 id 순서) | 'star' ★ 높은 것부터
+// 어느 순서든 단어 바로 앞에 아직 안 나온 그 단어의 조각을 넣는다.
+export const LIST_ORDERS = [
+  ['rec', '추천 순서', '조각 → 인체 → 계통별 → 약어'],
+  ['added', '넣은 순서', '교재·교수님 목록을 붙여 넣은 순서 그대로'],
+  ['units', '단원 순서 직접', '교재 목차대로 단원 순서를 바꿔요'],
+  ['star', '★ 높은 것부터', '자주 나오는 단어 먼저'],
+];
+export function listOrder(index, ids, { mode = 'rec', units = null } = {}) {
+  const chosen = ids.filter(id => index.byId.has(id));
+  const set = new Set(chosen);
+  for (const id of chosen) { const x = index.byId.get(id); if (x.k === 'word') for (const f of x.parts || []) if (index.byId.has('p:' + f)) set.add('p:' + f); }
+  const rec = newOrder(index, 'all').filter(id => set.has(id));
+  const recPos = new Map(rec.map((id, i) => [id, i]));
+  let seq;
+  if (mode === 'added') seq = chosen;
+  else if (mode === 'units') {
+    const pos = new Map((units || index.units.map(u => u.id)).map((u, i) => [u, i]));
+    const up = id => pos.has(index.byId.get(id).unit) ? pos.get(index.byId.get(id).unit) : 999;
+    seq = [...rec].sort((a, b) => up(a) - up(b) || recPos.get(a) - recPos.get(b));
+  } else if (mode === 'star') {
+    seq = [...rec].sort((a, b) => index.byId.get(b).star - index.byId.get(a).star || recPos.get(a) - recPos.get(b));
+  } else seq = rec;
+  const out = [], placed = new Set();
+  const put = id => { if (!placed.has(id) && set.has(id)) { placed.add(id); out.push(id); } };
+  for (const id of seq) {
+    const x = index.byId.get(id);
+    if (x.k === 'word') for (const f of x.parts || []) put('p:' + f);
+    put(id);
+  }
+  for (const id of rec) put(id);
+  return out;
 }
