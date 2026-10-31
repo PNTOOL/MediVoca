@@ -323,3 +323,17 @@ test('내 단어(my): 고른 단어와 필요한 조각만', () => {
   const p = planToday(ix, new Map(), { now: T0, scope: 'my', order: newOrder(ix, 'my') });
   assert.deepEqual(new Set(p.fresh), set);
 });
+
+import { answerMarks, marksList } from '../src/engine.js';
+test('답별 목록: 마지막 답과 한 번이라도', () => {
+  const log = [
+    { t: 1, c: 'w:a', b: 1, d: 'x' }, { t: 2, c: 'w:a', b: 4, ok: true, d: 'x' },
+    { t: 3, c: 'w:b', b: 3, ok: false, d: 'x' }, { t: 4, c: 'w:c', b: 2, d: 'x' },
+  ];
+  const m = answerMarks(log);
+  assert.equal(m.get('w:a').last, 4);
+  assert.equal(m.get('w:b').last, 1); // 알 것 같음인데 틀림 → 모름
+  assert.deepEqual(marksList(m, 1).map(z => z.id), ['w:b']);
+  assert.deepEqual(marksList(m, 1, 'ever').map(z => z.id), ['w:b', 'w:a']);
+  assert.deepEqual(marksList(m, 2).map(z => z.id), ['w:c']);
+});

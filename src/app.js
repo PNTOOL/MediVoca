@@ -3,7 +3,7 @@ import { UNITS, PAIRS, CONFUSIONS } from '../data/index.js';
 import { buildIndex } from './data.js';
 import {
   RULES, replay, planToday, newOrder, newSession, current, answer, isDone,
-  progress, streak, daySummary, dayKey, PACES, paceInfo, scopeSet, scopeLabel, normScope, scopeUnits, makeScope, overview,
+  progress, streak, daySummary, dayKey, MARKS, answerMarks, marksList, PACES, paceInfo, scopeSet, scopeLabel, normScope, scopeUnits, makeScope, overview,
   minutesForCards, daysBetween,
 } from './engine.js';
 import { guideHTML } from './guide.js';
@@ -83,7 +83,7 @@ const saveSettings = () => store.set('settings', A.settings);
 
 // ───────── 그리기 ─────────
 function render() {
-  const V = { study: viewStudy, end: viewEnd, guide: () => guideHTML(false), pace: viewPace, welcome: viewWelcome, look: viewLook, ready: viewReady, stats: viewStats, qset: viewQuizSet, qrun: viewQuizRun, qres: viewQuizResult, card: viewCard, pickw: viewPick };
+  const V = { study: viewStudy, end: viewEnd, guide: () => guideHTML(false), pace: viewPace, welcome: viewWelcome, look: viewLook, ready: viewReady, stats: viewStats, qset: viewQuizSet, qrun: viewQuizRun, qres: viewQuizResult, card: viewCard, pickw: viewPick, marks: viewMarks };
   const v = (V[A.view] || viewHome)();
   $app.innerHTML = v;
   $app.dataset.view = A.view;
@@ -270,6 +270,7 @@ function viewHome() {
   <section class="panel"><div class="row-between"><b>이번 주</b><span class="sub">${st ? `${st}일째 이어서 하는 중` : '오늘부터 시작해요'}</span></div><div class="week">${week}</div></section>
   <nav class="tabs">
     <button class="tab" data-act="quiz">시험 보기</button>
+    <button class="tab" data-act="marks">답별 단어</button>
     <button class="tab" data-act="stats">현황</button>
     <button class="tab${A.sheet === 'settings' ? ' on' : ''}" data-act="sheet" data-arg="settings">설정</button>
   </nav>
@@ -805,6 +806,7 @@ const quizPool = cfg => {
   if (cfg.range === 'learned') return IX.items.filter(x => A.states.has(x.id));
   if (cfg.range === 'wrong') return IX.items.filter(x => { const s = A.states.get(x.id); return s && s.fails >= 2; });
   if (cfg.range === 'units') return IX.items.filter(x => cfg.units.includes(x.unit));
+  if (cfg.range === 'ids') { const set = new Set(cfg.ids || []); return IX.items.filter(x => set.has(x.id)); }
   if (cfg.range === 'my') { const set = new Set(A.settings.myList || []); return IX.items.filter(x => set.has(x.id)); }
   const set = scopeSet(IX, A.settings.scope);
   return IX.items.filter(x => set.has(x.id));
@@ -819,6 +821,7 @@ function viewQuizSet() {
     ['wrong', '자주 틀린 단어', '두 번 이상 틀린 단어'],
     ['units', '단원 고르기', '시험 범위 단원만'],
     ['my', '내 단어', '직접 고른 단어'],
+    ...(c.ids ? [['ids', `답별 단어: ${c.idsLabel}`, '답별 단어에서 고른 목록']] : []),
   ];
   const rangeOpts = ranges.map(([k, t, d]) => `<button class="opt${c.range === k ? ' on' : ''}" data-act="qrange" data-arg="${k}" aria-pressed="${c.range === k}">
     <span class="dot"></span><span class="grow"><b>${t}${k !== 'units' ? ` · ${cnt(k)}개` : ''}</b><small>${esc(d)}</small></span></button>`).join('');
@@ -1145,6 +1148,56 @@ document.addEventListener('change', e => {
 document.addEventListener('toggle', e => {
   if (e.target.matches && e.target.matches('details.pk-unit') && A.pk) { const u = e.target.dataset.unit; if (e.target.open) A.pk.open.add(u); else A.pk.open.delete(u); }
 }, true);
+
+// ───────── 내가 누른 답별 단어 ─────────
+function viewMarks() {
+  const k = A.mk || (A.mk = { b: 1, mode: 'last' });
+  const marks = answerMarks(A.log);
+  const lists = MARKS.map(m => marksList(marks, m.b, k.mode));
+  const list = lists[k.b - 1].filter(m => IX.get(m.id));
+  const cur = MARKS[k.b - 1];
+  const fmt = t => { const d = new Date(t); return `${d.getMonth() + 1}/${d.getDate()}`; };
+  const rows = list.map(m => {
+    const x = IX.get(m.id);
+    const cnt = [1, 2, 3, 4].filter(b => m.n[b]).map(b => `${MARKS[b - 1].name} ${m.n[b]}`).join(' · ');
+    return `<li><button class="mk-row" data-act="opencard" data-arg="${esc(x.id)}">
+      <b lang="en">${esc(x.t)}</b><span>${esc(x.ko.join(' · '))}</span><small>${cnt} · 마지막 ${fmt(m.lastT)}</small></button></li>`;
+  }).join('');
+  return `<header class="top"><h1>답별 단어</h1><button class="btn small" data-act="home">닫기</button></header>
+  <p class="note" style="margin:-4px 2px 12px">공부할 때 누른 버튼별로 단어를 모아 봐요. 단어를 누르면 카드가 열려요.</p>
+  <div class="mk-tabs">${MARKS.map((m, i) => `<button class="mk-tab b${m.b}${k.b === m.b ? ' on' : ''}" data-act="mkb" data-arg="${m.b}"><b>${lists[i].length}</b><span>${m.name}</span></button>`).join('')}</div>
+  <div class="seg" style="margin:10px 0">
+    <button class="${k.mode === 'last' ? 'on' : ''}" data-act="mkmode" data-arg="last"><b>마지막에 누른 답</b><small>지금 상태</small></button>
+    <button class="${k.mode === 'ever' ? 'on' : ''}" data-act="mkmode" data-arg="ever"><b>한 번이라도 누른 답</b><small>지금까지 전부</small></button>
+  </div>
+  ${list.length ? `<section class="panel">
+    <div class="row-between"><h2>${cur.name} ${list.length}개</h2>${cur.sub ? `<span class="sub">${cur.sub}</span>` : ''}</div>
+    <div class="mk-actions">
+      <button class="btn primary" data-act="mkstudy">카드로 다시 공부</button>
+      <button class="btn" data-act="mkquiz">이 단어로 시험</button>
+      <button class="btn" data-act="mkmy">내 단어에 넣기</button>
+    </div>
+    <ul class="mk-list">${rows}</ul></section>`
+  : `<section class="panel"><p class="note center" style="padding:16px">아직 ${cur.name}${k.mode === 'last' ? '(으)로 남은' : '을(를) 누른'} 단어가 없어요.</p></section>`}`;
+}
+const mkIds = () => { const marks = answerMarks(A.log); return marksList(marks, A.mk.b, A.mk.mode).map(m => m.id).filter(id => IX.get(id)); };
+Object.assign(ACT, {
+  marks: () => { A.mk = A.mk || { b: 1, mode: 'last' }; go('marks'); },
+  mkb: b => { A.mk.b = Number(b); render(); },
+  mkmode: m => { A.mk.mode = m; render(); },
+  mkstudy: () => startSession({ day: dayKey(Date.now()), reviews: mkIds(), fresh: [] }, 'sticky'),
+  mkquiz: () => {
+    A.qcfg = { ...(A.qcfg || { units: [], types: ['ko2en', 'pick', 'abbr', 'desc'], n: 20, mode: 'practice' }), range: 'ids', ids: mkIds(), idsLabel: MARKS[A.mk.b - 1].name };
+    go('qset');
+  },
+  mkmy: async () => {
+    const set = new Set(A.settings.myList || []); const before = set.size;
+    for (const id of mkIds()) set.add(id);
+    A.settings.myList = [...set]; IX.myList = A.settings.myList; delete ORDERS.my;
+    await saveSettings();
+    toast(`내 단어에 ${set.size - before}개를 더했어요 (모두 ${set.size}개)`);
+  },
+});
 
 // ───────── 백업 ─────────
 async function sendBackup() {

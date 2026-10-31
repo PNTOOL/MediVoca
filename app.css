@@ -243,6 +243,21 @@ details.units .chip { min-height: 38px; }
 .pk-save { position: sticky; bottom: calc(10px + var(--safe-b)); }
 .pk-save small { font-weight: 400; opacity: 0.85; font-size: 12.5px; }
 
+/* 답별 단어 */
+.mk-tabs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.mk-tab { display: grid; gap: 2px; padding: 10px 4px; border-radius: 14px; border: 2px solid transparent; font: inherit; cursor: pointer; color: var(--ink); }
+.mk-tab b { font-size: 22px; }
+.mk-tab span { font-size: 12.5px; }
+.mk-tab.b1 { background: var(--tint); } .mk-tab.b2 { background: var(--tint2); }
+.mk-tab.b3 { background: var(--mid); color: var(--mid-ink); } .mk-tab.b4 { background: var(--pri); color: var(--pri-ink, #fff); }
+.mk-tab.on { border-color: var(--ink); box-shadow: 0 2px 8px rgba(0,0,0,.12); }
+.mk-actions { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin: 10px 0; }
+.mk-actions .btn { padding: 10px 4px; font-size: 13.5px; min-height: 44px; }
+.mk-list { list-style: none; margin: 0; padding: 0; }
+.mk-row { width: 100%; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 2px 10px; text-align: left; padding: 11px 4px; border: 0; border-top: 1px solid var(--line); background: none; font: inherit; color: var(--ink); cursor: pointer; }
+.mk-row span { color: var(--sub); font-size: 14px; }
+.mk-row small { grid-column: 1 / -1; color: var(--sub); font-size: 12px; }
+
 /* 준비 끝 */
 .readycard { background: var(--pri); color: var(--pri-ink); border-radius: calc(var(--r-card) + 4px); padding: 22px; display: grid; gap: 12px; margin-bottom: 12px; }
 .readycard .big { font-family: var(--display); font-weight: var(--display-w); font-size: 38px; line-height: 1.1; letter-spacing: -0.03em; }
@@ -290,7 +305,7 @@ details.units .chip { min-height: 38px; }
 .legend { list-style: none; padding: 0; margin: 0; display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 13px; color: var(--sub); }
 .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
 .tabs { display: flex; gap: 8px; margin: 4px 0 12px; }
-.tab { flex: 1; min-height: 52px; padding: 11px; border-radius: var(--r-btn); border: var(--card-border); box-shadow: var(--card-shadow); background: var(--card); cursor: pointer; font-size: 14.5px; }
+.tab { flex: 1; min-height: 52px; padding: 10px 4px; word-break: keep-all; border-radius: var(--r-btn); border: var(--card-border); box-shadow: var(--card-shadow); background: var(--card); cursor: pointer; font-size: 14.5px; }
 .tab.on { border-color: var(--pri); color: var(--pri); font-weight: 600; }
 .sheet { display: grid; gap: 10px; }
 .set { display: grid; gap: 6px; padding: 8px 0; border-top: 1px solid var(--line); }

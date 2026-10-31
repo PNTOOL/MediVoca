@@ -474,3 +474,25 @@ export function overview(index, log, states, { now = Date.now(), retention = 0.9
     ahead, studyDays, total: log.length, sticky,
   };
 }
+
+// 내가 누른 답별 목록: 카드마다 마지막 답(1 모름·틀림, 2 헷갈림, 3 알 것 같음, 4 확실히 앎)과 답별 횟수
+export const MARKS = [
+  { b: 1, name: '모름', sub: '모름 + 확인에서 틀림' },
+  { b: 2, name: '헷갈림', sub: '' },
+  { b: 3, name: '알 것 같음', sub: '정답 확인에서 맞음' },
+  { b: 4, name: '확실히 앎', sub: '정답 확인에서 맞음' },
+];
+export function answerMarks(log) {
+  const out = new Map();
+  for (const e of [...log].sort((a, b) => a.t - b.t)) {
+    const r = ratingOf(e);
+    let m = out.get(e.c);
+    if (!m) { m = { id: e.c, last: r, lastT: e.t, n: [0, 0, 0, 0, 0] }; out.set(e.c, m); }
+    m.n[r]++; m.last = r; m.lastT = e.t;
+  }
+  return out;
+}
+// mode 'last' = 마지막에 누른 답이 b, 'ever' = 한 번이라도 b. 최근 순.
+export function marksList(marks, b, mode = 'last') {
+  return [...marks.values()].filter(m => (mode === 'ever' ? m.n[b] > 0 : m.last === b)).sort((x, y) => y.lastT - x.lastT);
+}
