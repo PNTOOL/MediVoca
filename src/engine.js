@@ -100,7 +100,8 @@ export function retrievability(s, now, retention = 0.9) {
 // ───────── 새 단어 순서 ─────────
 // 장 순서대로, 장 안에서는 조각 → 단어(같은 어근끼리) → 약어. 핵심(core)을 다 넣은 뒤 확장(ext).
 // 단어에 들어가는 조각은 그 단어보다 먼저 온다(다른 장·확장 조각이라도).
-export function newOrder(index) {
+export function newOrder(index, scope = 'all') {
+  const keep = scope === 'all' ? null : scopeSet(index, scope);
   const out = [];
   const placed = new Set();
   const put = id => { if (!placed.has(id) && index.byId.has(id)) { placed.add(id); out.push(id); } };
@@ -127,7 +128,82 @@ export function newOrder(index) {
       for (const a of abbr) put(a.id);
     }
   }
-  return out;
+  return keep ? out.filter(id => keep.has(id)) : out;
+}
+
+// ───────── 공부 범위 ─────────
+// star3 ★★★만, core 핵심(★★ 이상), all 전체(핵심 다음 확장). 범위 안 단어에 필요한 조각은 함께 넣는다.
+export const SCOPES = {
+  star3: { label: '★★★만', test: x => x.star === 3 },
+  core: { label: '핵심 (★★ 이상)', test: x => x.stage === 'core' },
+  all: { label: '전체', test: () => true },
+};
+export function scopeSet(index, scope = 'all') {
+  const t = (SCOPES[scope] || SCOPES.all).test;
+  const set = new Set();
+  for (const x of index.items) {
+    if (!t(x)) continue;
+    set.add(x.id);
+    if (x.k === 'word') for (const f of x.parts || []) if (index.byId.has('p:' + f)) set.add('p:' + f);
+  }
+  return set;
+}
+
+// ───────── 공부 속도 ─────────
+// pace: { mode: 'daily', cards: 30|50|80 } 하루 장수 고정
+//       { mode: 'goal', start, end: 'YYYY-MM-DD' } 그 날짜까지 범위를 끝내도록 하루 새 단어 수를 계산
+export const PACES = [
+  { cards: 30, label: '천천히' },
+  { cards: 50, label: '기본' },
+  { cards: 80, label: '빠르게' },
+];
+export const minutesForCards = cards => Math.round(cards * 0.3);
+export const minutesForNew = perDay => Math.round(perDay * 0.65 + 8);
+// 하루 장수를 고정했을 때 평균 새 단어 수 (시뮬레이션 기준 대략값)
+const avgNewForCards = cards => cards * 0.18;
+
+export function daysBetween(fromKey, toKey) {
+  const a = new Date(fromKey + 'T12:00:00'), b = new Date(toKey + 'T12:00:00');
+  return Math.round((b - a) / DAY);
+}
+// 복습만 하는 마지막 기간: 4주 이상 남으면 12일, 2주 이상이면 7일, 그보다 짧으면 절반
+export function reviewOnlyDays(daysLeft) {
+  if (daysLeft >= 28) return 12;
+  if (daysLeft >= 14) return 7;
+  return Math.floor(daysLeft / 2);
+}
+
+export function paceInfo(index, states, { pace = { mode: 'daily', cards: RULES.dailyCards }, scope = 'all', now = Date.now() } = {}) {
+  const today = dayKey(now);
+  const set = scopeSet(index, scope);
+  let remaining = 0, newToday = 0;
+  for (const id of set) {
+    const s = states.get(id);
+    if (!s) remaining++;
+    else if (s.firstDay === today) newToday++;
+  }
+  const info = { mode: pace.mode, total: set.size, remaining, newToday };
+  if (pace.mode === 'goal' && pace.end) {
+    const daysLeft = daysBetween(today, pace.end);
+    // 복습만 하는 기간은 계획을 세운 날 기준으로 정한다 (날이 지나도 줄지 않게)
+    const reviewOnly = reviewOnlyDays(daysBetween(pace.start || today, pace.end));
+    const newDays = Math.max(0, daysLeft - reviewOnly);
+    const start = remaining + newToday; // 오늘 아침 기준 남은 수
+    info.daysLeft = daysLeft;
+    info.reviewOnly = reviewOnly;
+    info.newDays = newDays;
+    info.ended = daysLeft <= 0;
+    info.reviewPhase = !info.ended && newDays === 0;
+    info.perDay = newDays > 0 ? Math.ceil(start / newDays) : 0;
+    info.minutes = minutesForNew(info.perDay);
+    info.heavy = info.minutes > 40;
+  } else {
+    const cards = pace.cards || RULES.dailyCards;
+    info.cards = cards;
+    info.minutes = minutesForCards(cards);
+    info.weeks = Math.max(1, Math.round(remaining / avgNewForCards(cards) / 7));
+  }
+  return info;
 }
 
 // 헷갈리는 짝의 반대쪽 항목들
@@ -164,7 +240,11 @@ export function pickNew(index, states, n, { order, now = Date.now(), exclude = n
 }
 
 // ───────── 오늘 할 일 ─────────
-export function planToday(index, states, { now = Date.now(), retention = 0.9, dailyCards = RULES.dailyCards, newMax = RULES.newMax, extraNew = 0, order } = {}) {
+export function planToday(index, states, { now = Date.now(), retention = 0.9, pace, scope = 'all', extraNew = 0, order } = {}) {
+  pace = pace || { mode: 'daily', cards: RULES.dailyCards };
+  const goal = pace.mode === 'goal' && pace.end ? paceInfo(index, states, { pace, scope, now }) : null;
+  const dailyCards = goal ? RULES.dailyCards : (pace.cards || RULES.dailyCards);
+  const newMax = Math.round(dailyCards * RULES.newMax / RULES.dailyCards);
   const today = dayKey(now);
   const end = dayEnd(now);
   const f = makeScheduler(retention);
@@ -180,10 +260,12 @@ export function planToday(index, states, { now = Date.now(), retention = 0.9, da
   const reviewRoom = Math.max(0, RULES.reviewMax - reviewedToday);
   const reviews = due.slice(0, reviewRoom).map(s => s.id);
   const reviewsTotal = reviewedToday + due.length;
-  const backlog = reviewsTotal > dailyCards;
-  const newQuota = backlog ? 0 : Math.min(newMax, Math.max(RULES.newMin, dailyCards - reviewsTotal));
+  // 날짜 목표가 있으면 계산한 수를 따르고(밀려도 쉬지 않음), 없으면 하루 장수에서 복습을 뺀 나머지
+  const backlog = !goal && reviewsTotal > dailyCards;
+  const newQuota = goal ? (goal.ended ? Math.min(newMax, Math.max(RULES.newMin, dailyCards - reviewsTotal)) : goal.perDay)
+    : backlog ? 0 : Math.min(newMax, Math.max(RULES.newMin, dailyCards - reviewsTotal));
   const newLeft = Math.max(0, newQuota - newToday) + extraNew;
-  const fresh = pickNew(index, states, newLeft, { order, now });
+  const fresh = pickNew(index, states, newLeft, { order: order || newOrder(index, scope), now });
   return {
     day: today,
     reviews,
@@ -192,6 +274,7 @@ export function planToday(index, states, { now = Date.now(), retention = 0.9, da
     dueTotal: due.length,
     reviewedToday,
     newToday,
+    goal,
     minutes: Math.max(1, Math.round((reviews.length * RULES.secReview + fresh.length * RULES.secNew) / 60)),
   };
 }
@@ -248,10 +331,11 @@ export function isDone(sess) {
 }
 
 // ───────── 요약 ─────────
-export function progress(index, states, stage = 'core') {
+export function progress(index, states, scope = 'core') {
   const res = { new: 0, learning: 0, mastered: 0, long: 0, total: 0 };
+  const set = scopeSet(index, scope);
   for (const x of index.items) {
-    if (x.stage !== stage) continue;
+    if (!set.has(x.id)) continue;
     res.total++;
     res[statusOf(states.get(x.id))]++;
   }

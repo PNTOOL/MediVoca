@@ -206,3 +206,60 @@ test('오늘 요약: 맞힌 비율은 처음 본 결과로, 다시 본 것은 �
   assert.equal(sum.fresh, 2);
   assert.ok(sum.tomorrow >= 1); // 모름은 내일 다시
 });
+
+// ───────── 공부 계획 ─────────
+import { scopeSet, paceInfo, daysBetween, reviewOnlyDays } from '../src/engine.js';
+
+test('범위: ★★★만 < 핵심 < 전체, 필요한 조각은 함께 들어간다', () => {
+  const s3 = scopeSet(IX, 'star3'), core = scopeSet(IX, 'core'), all = scopeSet(IX, 'all');
+  assert.ok(s3.size < core.size && core.size < all.size);
+  assert.equal(all.size, 727);
+  for (const id of s3) { const x = IX.get(id); if (x.k === 'word') for (const f of x.parts || []) assert.ok(s3.has('p:' + f)); }
+  const order = newOrder(IX, 'star3');
+  assert.equal(order.length, s3.size);
+  const p = planToday(IX, new Map(), { now: T0, scope: 'star3' });
+  for (const id of p.fresh) assert.ok(s3.has(id));
+});
+
+test('하루 장수 30/80: 새 단어 최대가 같이 바뀐다', () => {
+  assert.equal(planToday(IX, new Map(), { now: T0, pace: { mode: 'daily', cards: 30 } }).fresh.length, 18);
+  assert.equal(planToday(IX, new Map(), { now: T0, pace: { mode: 'daily', cards: 80 } }).fresh.length, 48);
+});
+
+test('날짜까지 끝내기: 남은 수 ÷ 새 단어 넣는 날, 마지막은 복습만', () => {
+  assert.equal(daysBetween('2026-11-02', '2026-12-28'), 56);
+  assert.equal(reviewOnlyDays(56), 12);
+  assert.equal(reviewOnlyDays(14), 7);
+  const pace = { mode: 'goal', end: '2026-12-28' }; // 8주
+  const info = paceInfo(IX, new Map(), { pace, scope: 'all', now: T0 });
+  assert.equal(info.newDays, 44);
+  assert.equal(info.perDay, Math.ceil(727 / 44));
+  const p = planToday(IX, new Map(), { now: T0, pace, scope: 'all' });
+  assert.equal(p.fresh.length, info.perDay);
+  // 밀린 복습이 많아도 쉬지 않는다
+  const log = []; IX.items.slice(0, 120).forEach((x, i) => log.push(ev(T0 - DAY + i, x.id, 1)));
+  assert.ok(planToday(IX, replay(log), { now: T0, pace, scope: 'all' }).fresh.length > 0);
+  // 복습만 하는 기간
+  const late = paceInfo(IX, new Map(), { pace: { mode: 'goal', end: '2026-11-08' }, now: T0 });
+  assert.equal(late.daysLeft, 6);
+  assert.equal(late.perDay, Math.ceil(727 / 3));
+  // 10일 계획(11/2~11/12)은 마지막 5일이 복습만: 11/9에는 새 단어 없음
+  const ten = { mode: 'goal', start: '2026-11-02', end: '2026-11-12' };
+  assert.equal(paceInfo(IX, new Map(), { pace: ten, now: T0 }).newDays, 5);
+  const nov9 = T0 + 7 * DAY;
+  assert.ok(paceInfo(IX, new Map(), { pace: ten, now: nov9 }).reviewPhase);
+  assert.equal(planToday(IX, new Map(), { now: nov9, pace: ten }).fresh.length, 0);
+  // 날짜가 지나면 기본(하루 50장)으로
+  const over = planToday(IX, new Map(), { now: T0, pace: { mode: 'goal', end: '2026-11-01' } });
+  assert.ok(over.goal.ended);
+  assert.equal(over.fresh.length, RULES.newMax);
+});
+
+test('오늘 이미 넣은 새 단어를 빼도 하루 목표 수는 그대로다', () => {
+  const pace = { mode: 'goal', end: '2026-12-28' };
+  const p = planToday(IX, new Map(), { now: T0, pace });
+  const log = p.fresh.slice(0, 5).map((c, i) => ev(T0 + i, c, 3, true));
+  const p2 = planToday(IX, replay(log), { now: T0 + 1000, pace });
+  assert.equal(p2.goal.perDay, p.goal.perDay);
+  assert.equal(p2.fresh.length, p.fresh.length - 5);
+});
