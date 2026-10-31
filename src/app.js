@@ -3,7 +3,7 @@ import { UNITS, PAIRS, CONFUSIONS } from '../data/index.js';
 import { buildIndex } from './data.js';
 import {
   RULES, replay, planToday, newOrder, newSession, current, answer, isDone,
-  progress, streak, daySummary, dayKey, LIST_ORDERS, MARKS, answerMarks, marksList, PACES, paceInfo, scopeSet, scopeLabel, normScope, scopeUnits, makeScope, overview,
+  progress, streak, daySummary, dayKey, setSummary, LIST_ORDERS, MARKS, answerMarks, marksList, PACES, paceInfo, scopeSet, scopeLabel, normScope, scopeUnits, makeScope, overview,
   minutesForCards, daysBetween,
 } from './engine.js';
 import { guideHTML } from './guide.js';
@@ -23,7 +23,7 @@ const DEFAULTS = {
   scope: 'all',                                  // 공부 범위: star3 | core | all
   pace: { mode: 'daily', cards: RULES.dailyCards }, // 공부 속도
   seenGuide: false,                              // 첫 시작(환영 → 색 → 계획 → 준비)을 마쳤는지
-  theme: 'burgundy',                             // 색: burgundy | glacier | lavender | sage | sunset
+  theme: 'rose',                                 // 색(파스텔): rose | sky | lavender | mint | peach
   look: 'basic',                                 // 모양: basic 기본 | soft 부드러움
   lists: [],                                     // 내 단어 목록 여러 개 [{ id, name, ids, pace }]
   curList: '',                                   // 지금 쓰는 내 단어 목록 id
@@ -67,6 +67,7 @@ async function boot() {
   A.quizzes = await store.get('quizzes', []);
   const saved = await store.get('session', null);
   if (saved && saved.day === dayKey(Date.now()) && !isDone(saved)) A.sess = saved;
+  A.settings.theme = themeOf(A.settings.theme).id;
   applyLook(A.settings.theme, A.settings.look);
   if (A.settings.scope === 'my') { A.settings.track = 'my'; A.settings.myPace = A.settings.pace; A.settings.scope = '321'; }
   // 예전 하나짜리 내 단어 → 목록 여러 개
@@ -126,9 +127,11 @@ const saveSettings = () => store.set('settings', A.settings);
 
 // ───────── 그리기 ─────────
 function render() {
-  const V = { study: viewStudy, end: viewEnd, guide: () => guideHTML(false), pace: viewPace, welcome: viewWelcome, look: viewLook, ready: viewReady, stats: viewStats, qset: viewQuizSet, qrun: viewQuizRun, qres: viewQuizResult, card: viewCard, pickw: viewPick, marks: viewMarks };
+  const V = { study: viewStudy, end: viewEnd, guide: () => guideHTML(false), pace: viewPace, welcome: viewWelcome, look: viewLook, ready: viewReady, stats: viewStats, qset: viewQuizSet, qrun: viewQuizRun, qres: viewQuizResult, card: viewCard, pickw: viewPick, marks: viewMarks, settings: viewSettingsPage };
   const v = (V[A.view] || viewHome)();
-  $app.innerHTML = v;
+  const nav = NAV_VIEWS.has(A.view) || !V[A.view];
+  $app.innerHTML = v + (nav ? bottomNav() : '');
+  document.body.classList.toggle('has-nav', nav);
   $app.dataset.view = A.view;
   const ta = $app.querySelector('textarea');
   if (ta && A.editNote) ta.focus();
@@ -144,6 +147,12 @@ const koMain = x => (x.ko || []).join(' · ');
 // ───────── 아이콘 (선 아이콘, 글자색을 따른다) ─────────
 const svg = (d, s = 22) => `<svg aria-hidden="true" width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
 const IC = {
+  search: svg('<circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path>', 18),
+  gear: svg('<circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"></path>'),
+  n_home: svg('<path d="M3 11l9-7 9 7"></path><path d="M5 10v10h14V10"></path>'),
+  n_qset: svg('<path d="M9 11l2 2 4-4"></path><rect x="4" y="3" width="16" height="18" rx="3"></rect>'),
+  n_marks: svg('<path d="M6 3h12v18l-6-4-6 4z"></path>'),
+  n_stats: svg('<path d="M4 20V10"></path><path d="M10 20V4"></path><path d="M16 20v-7"></path><path d="M21 20H3"></path>'),
   back: svg('<path d="M15 18l-6-6 6-6"></path>'),
   bulb: svg('<path d="M9 18h6"></path><path d="M10 22h4"></path><path d="M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.2 1 2V17h6v-.3c0-.8.4-1.5 1-2A7 7 0 0 0 12 2z"></path>'),
   cal: svg('<rect x="3" y="4" width="18" height="17" rx="3"></rect><path d="M3 9h18"></path><path d="M8 2v4"></path><path d="M16 2v4"></path>'),
@@ -165,12 +174,12 @@ function viewWelcome() {
   return `<section class="welcome">
     <div class="brand"><div class="brand-mark" aria-hidden="true"><b>M</b><i></i></div><span>메디보카</span></div>
     <div>
-      <h1 class="hero-title">의학용어 ${n}개,<br>하루 15분이면 돼요</h1>
+      <h1 class="hero-title">의학용어 ${n}개,<br>하루 15~20분이면 돼요</h1>
       <p class="lead-p">암기 연구에서 효과가 가장 높게 나온 방법만 골라 만들었어요. 읽지 말고 떠올리고, 잊기 직전에 다시 봐요.</p>
     </div>
     <div class="feats">
       <div class="feat"><div class="ic">${IC.bulb}</div><div><b>먼저 떠올리기</b><span>답을 보기 전에 뜻을 떠올려요. 다시 읽기보다 훨씬 오래 남아요.</span></div></div>
-      <div class="feat"><div class="ic">${IC.cal}</div><div><b>잊기 직전에 다시</b><span>단어마다 기억 상태를 계산해 1일 → 3일 → 8일 → 3주 간격으로 다시 보여 줘요.</span></div></div>
+      <div class="feat"><div class="ic">${IC.cal}</div><div><b>잊기 직전에 다시</b><span>단어마다 기억을 계산해서 잊기 직전에 다시 보여 줘요. 맞힐수록 간격이 길어져요.</span></div></div>
       <div class="feat"><div class="ic">${IC.parts}</div><div><b>조각으로 풀기</b><span>cardi/o 심장 + -itis 염증 = 심장염. 조각을 알면 처음 보는 단어도 풀려요.</span></div></div>
     </div>
     <p class="cite">근거: Dunlosky 외(2013) 공부법 비교 · 연속 재학습 연구 · FSRS 복습 계산 — 자세히는 시작 뒤 "사용법"에서</p>
@@ -226,12 +235,7 @@ function viewReady() {
       <div><span>복습</span><span>잊기 직전에 앱이 알아서</span></div>
     </div>
   </section>
-  <section class="panel" style="padding:4px 16px">
-    <label class="toggle-row"><span><b style="font-size:15px">RN 영어 설명도 보기</b><br><span class="sub">영어 정의와 환자가 쓰는 말 (NCLEX 대비)</span></span>
-      <input type="checkbox" data-act="rnbox"${S.rn ? ' checked' : ''}></label>
-    <div class="set" style="grid-template-columns:auto 1fr;align-items:center"><span>이 기기</span><div style="justify-content:flex-end">
-      ${['폰', '태블릿', '컴퓨터'].map(x => `<button class="chip${S.label === x ? ' on' : ''}" data-act="label" data-arg="${x}">${x}</button>`).join('')}</div></div>
-  </section>
+  <p class="note center" style="margin:-2px 0 12px">RN 영어 설명, 발음 속도, 목표 기억률은 나중에 설정(⚙)에서 바꿀 수 있어요.</p>
   ${tip}
   <div class="bottom-cta"><button class="btn primary big" data-act="finish">첫 공부 시작</button></div>`;
 }
@@ -241,10 +245,36 @@ const ADJ = [[-999, '복습만'], [-5, '5개 적게'], [0, '계획대로'], [5, 
 function adjRow(p) {
   const n = todayAdj();
   const goal = AP().pace.mode === 'goal';
-  return `<details class="adj"${n ? ' open' : ''}><summary>오늘 새 단어 양 바꾸기${n ? ` · ${ADJ.find(a => a[0] === n)?.[1] || n}` : ''}</summary>
-    <div class="chips">${ADJ.map(([v, l]) => `<button class="chip${n === v ? ' on' : ''}" data-act="adj" data-arg="${v}">${l}</button>`).join('')}</div>
+  return `<div class="adj"><div class="chips">${ADJ.map(([v, l]) => `<button class="chip${n === v ? ' on' : ''}" data-act="adj" data-arg="${v}">${l}</button>`).join('')}</div>
     <p class="note">${goal ? '오늘 더 하면 남은 날의 하루 양이 줄고, 적게 하면 남은 날에 나눠져요. 끝나는 날은 그대로예요.' : '오늘만 바뀌어요. 내일은 다시 계획대로예요.'}</p>
-  </details>`;
+  </div>`;
+}
+
+// 홈 단어 찾기: 영어·한글 일부로 찾아서 누르면 카드가 열린다
+function hsearchHTML() {
+  const q = (A.hq || '').trim().toLowerCase();
+  if (!q) return '';
+  const nq = normKo(q);
+  const hits = [];
+  for (const x of IX.items) {
+    const t = x.t.toLowerCase();
+    const sc = t === q ? 0 : t.startsWith(q) ? 1 : x.ko.some(k => normKo(k) === nq) ? 0 : x.ko.some(k => normKo(k).startsWith(nq)) ? 2 : t.includes(q) ? 3 : x.ko.some(k => normKo(k).includes(nq)) || (x.full || '').toLowerCase().includes(q) ? 4 : -1;
+    if (sc >= 0) hits.push([sc, x]);
+  }
+  hits.sort((a, b) => a[0] - b[0] || a[1].t.length - b[1].t.length);
+  if (!hits.length) return '<p class="hs-none">찾는 단어가 없어요.</p>';
+  return `<ul class="hs-list">${hits.slice(0, 8).map(([, x]) => `<li><button data-act="opencard" data-arg="${esc(x.id)}"><b lang="en">${esc(x.t)}</b><span>${esc(x.ko.join(' · '))}</span><em>${KIND[x.k]}</em></button></li>`).join('')}</ul>${hits.length > 8 ? `<p class="hs-none">${hits.length - 8}개 더 있어요. 더 길게 써 보세요.</p>` : ''}`;
+}
+
+// 화면 맨 아래 고정 메뉴 (홈 · 시험 · 단어 모음 · 현황)
+const NAV = [['home', '홈', 'home'], ['qset', '시험', 'quiz'], ['marks', '단어 모음', 'marks'], ['stats', '현황', 'stats']];
+const NAV_VIEWS = new Set(['home', 'qset', 'marks', 'stats', 'settings']);
+function bottomNav() {
+  return `<nav class="bnav" aria-label="메뉴">${NAV.map(([v, l, act]) => `<button class="${A.view === v ? 'on' : ''}" data-act="${act}"${A.view === v ? ' aria-current="page"' : ''}>${IC['n_' + v]}<span>${l}</span></button>`).join('')}</nav>`;
+}
+function viewSettingsPage() {
+  return `<header class="top"><h1>설정</h1><button class="btn small" data-act="home">닫기</button></header>${viewSettings()}${viewBackup()}
+  <p class="foot">단어 ${IX.items.length}개 · 공부 기록 ${A.log.length}줄 · 이 기기: ${esc(A.settings.label)}</p>`;
 }
 
 // ───────── 홈 (다음부터 열면 바로 보이는 화면) ─────────
@@ -264,11 +294,15 @@ function viewHome() {
     const left = A.sess.queue.length + (A.sess.finalsAdded ? 0 : A.sess.finals.length);
     hero = `<p class="big-line">하던 공부가 있어요</p><p class="sub">${A.sess.doneCards} / ${A.sess.total}장 봤어요 · 남은 카드 ${left}장</p>
       <button class="btn primary big" data-act="resume">이어서 하기</button>
-      <button class="btn ghost" data-act="drop">처음부터 다시 정하기</button>`;
+      <button class="btn ghost" data-act="drop">하던 것 그만두고 새로 시작</button>`;
   } else if (doneToday) {
     hero = `<p class="big-line">오늘 할 일 끝!</p><p class="sub">내일 다시 만나요. 더 하고 싶으면 새 단어를 조금 더 넣을 수 있어요.</p>
       <button class="btn primary big" data-act="quizToday">오늘 공부한 단어로 시험</button>
-      <button class="btn ghost" data-act="more">새 단어 ${RULES.batch}개 더</button>`;
+      <div class="hero-tools">
+        <button class="htool" data-act="more">새 단어 ${RULES.batch}개 더</button>
+        <button class="htool" data-act="quizTodaySpell">철자 쓰기 연습</button>
+        <button class="htool" data-act="pick" data-arg="study">골라서 공부</button>
+      </div>`;
   } else {
     hero = `<div class="hero-stats"><div><b>${p.reviews.length}</b><span>복습</span></div><div><b>${p.fresh.length}</b><span>새 단어</span></div><div><b>${p.minutes}<small>분</small></b><span>예상 시간</span></div></div>
       ${p.backlog ? '<p class="note">밀린 복습이 많아서 오늘은 새 단어를 쉬어 가요.</p>' : ''}
@@ -276,8 +310,12 @@ function viewHome() {
       ${p.goal && p.goal.ended ? '<p class="note">목표 날짜가 지났어요. 공부 계획에서 새로 정해 보세요.</p>' : ''}
       ${p.dueTotal > p.reviews.length ? `<p class="note">남은 복습 ${p.dueTotal - p.reviews.length}장은 내일로 나눠요.</p>` : ''}
       <button class="btn primary big" data-act="start">오늘 공부 시작</button>
-      ${adjRow(p)}
-      ${p.dueTotal ? `<button class="btn ghost" data-act="quick" style="margin-top:-6px">3분만 하기 · 복습 ${Math.min(RULES.quickCards, p.dueTotal)}장</button>` : ''}`;
+      <div class="hero-tools">
+        <button class="htool${A.adjOpen || todayAdj() ? ' on' : ''}" data-act="adjtoggle">오늘 양 바꾸기${todayAdj() ? ' ✓' : ''}</button>
+        ${p.dueTotal ? `<button class="htool" data-act="quick">3분만 · 복습 ${Math.min(RULES.quickCards, p.dueTotal)}장</button>` : ''}
+        <button class="htool" data-act="pick" data-arg="study">골라서 공부</button>
+      </div>
+      ${A.adjOpen || todayAdj() ? adjRow(p) : ''}`;
   }
 
   // 계획 진도
@@ -307,14 +345,14 @@ function viewHome() {
 
   return `
   <header class="top home-top"><div><span class="date">${dateLine}</span><h1>오늘 할 일</h1></div>
-    <div class="top-r">${st ? `<span class="pill">${IC.flame}${st}일 연속</span>` : ''}<button class="icon-round" data-act="guide" aria-label="사용법">${IC.help}</button></div></header>
+    <div class="top-r">${st ? `<span class="pill">${IC.flame}${st}일 연속</span>` : ''}<button class="icon-round" data-act="guide" aria-label="사용법">${IC.help}</button><button class="icon-round" data-act="settings" aria-label="설정">${IC.gear}</button></div></header>
+  <div class="hsearch"><span class="hs-ic">${IC.search}</span><input type="search" data-hsearch placeholder="단어 찾기 (영어·한글, 예: 빈맥, tachy)" value="${esc(A.hq || '')}" autocomplete="off"><div id="hsres">${hsearchHTML()}</div></div>
   ${inKakao ? '<div class="warn">카카오톡 안에서 열렸어요. 여기서 공부하면 기록이 따로 저장돼요. 오른쪽 위 메뉴에서 <b>다른 브라우저로 열기</b>를 눌러 주세요.</div>' : ''}
   ${(A.settings.lists || []).some(l => l.ids.length) ? `<div class="seg track-seg" role="radiogroup" aria-label="무엇을 공부할까요">
     <button class="${S.track === 'rec' ? 'on' : ''}" data-act="track" data-arg="rec"><b>추천 단어</b><small>${esc(scopeLabel(A.settings.scope))}</small></button>
     <button class="${S.track === 'my' ? 'on' : ''}" data-act="track" data-arg="my"><b>내 단어</b><small>${esc(myName())} · ${myIds().length}개</small></button>
   </div>${S.track === 'my' && (A.settings.lists || []).length > 1 ? `<div class="chips track-lists">${A.settings.lists.map(l => `<button class="chip${l.id === curL().id ? ' on' : ''}" data-act="lsel" data-arg="${l.id}">${esc(l.name)} · ${l.ids.length}</button>`).join('')}</div>` : ''}` : ''}
   <section class="hero">${hero}</section>
-  <button class="btn pickstudy" data-act="pick" data-arg="study">${IC.search || ''}단원·묶음 골라서 바로 공부</button>
   <section class="panel">
     <div class="plan-row">
       <button class="ring" data-act="stats" aria-label="현황 보기" style="background:conic-gradient(var(--pri) 0 ${pct}%, var(--tint) ${pct}% 100%)"><span>${pct}%</span></button>
@@ -329,14 +367,7 @@ function viewHome() {
     ${pr.suggestNext && S.scope !== 'all' ? '<p class="note">이 범위의 80%를 익혔어요! 공부 계획에서 범위를 넓혀 보세요.</p>' : ''}
   </section>
   <section class="panel"><div class="row-between"><b>이번 주</b><span class="sub">${st ? `${st}일째 이어서 하는 중` : '오늘부터 시작해요'}</span></div><div class="week">${week}</div></section>
-  <nav class="tabs">
-    <button class="tab" data-act="quiz">시험 보기</button>
-    <button class="tab" data-act="marks">단어 모음</button>
-    <button class="tab" data-act="stats">현황</button>
-    <button class="tab${A.sheet === 'settings' ? ' on' : ''}" data-act="sheet" data-arg="settings">설정</button>
-  </nav>
-  ${A.sheet === 'settings' ? viewSettings() + viewBackup() : ''}
-  <p class="foot">단어 ${IX.items.length}개 · 기록 ${A.log.length}줄 · 이 기기: ${esc(S.label)}</p>`;
+`;
 }
 
 // 공부 계획 화면: 무엇을(범위) · 얼마나 빨리(하루 장수 또는 날짜)
@@ -388,25 +419,25 @@ function viewPace() {
   const cur = d.pace.mode === 'goal' && d.pace.end ? goalAt(d.pace.end) : null;
   let sum = '';
   if (cur && !cur.ended) {
-    sum = `<section class="panel"><div class="sumcard">
-      <div><b>${cur.perDay}개</b><span>하루 새 단어</span></div>
-      <div><b>약 ${cur.minutes}분</b><span>하루 공부</span></div>
-      <div><b>${fmtDate(d.pace.end)}</b><span>다 끝나는 날</span></div>
-    </div>
-    <p class="note" style="margin-top:10px">새 단어는 ${cur.newDays}일 동안 넣고, 마지막 ${cur.reviewOnly}일은 복습만 해요. 하루 시간에는 복습이 들어 있어요.</p>
+    sum = `<section class="panel">
+    <p class="note">새 단어는 ${cur.newDays}일 동안 넣고, 마지막 ${cur.reviewOnly}일은 복습만 해요. 하루 시간에는 복습이 들어 있어요.</p>
     ${cur.heavy ? `<p class="note warn-t" style="margin-top:6px">하루 40분이 넘어요.${stars.has(3) && stars.size > 1 ? ' <button class="link" data-act="dstaronly">★★★만 먼저</button> 하거나' : ''} 기간을 늘려 보세요.</p>` : ''}
     </section>`;
   } else if (d.pace.mode === 'daily') {
     sum = `<p class="note center">지금은 "하루 ${d.pace.cards}장" 방식이에요. 위에서 기간을 고르면 바뀌어요.</p>`;
   }
   const disabled = !(d.pace.mode === 'daily' || (cur && !cur.ended)) || sel.total === 0;
+  // 고르는 동안 늘 보이는 결과 줄 (시작 버튼 바로 위)
+  const resLine = cur && !cur.ended
+    ? `<div class="pace-res"><div><b>${cur.perDay}개</b><span>하루 새 단어</span></div><div><b>약 ${cur.minutes}분</b><span>하루 공부</span></div><div><b>${fmtDate(d.pace.end)}</b><span>끝나는 날</span></div></div>`
+    : d.pace.mode === 'daily' ? `<div class="pace-res one">하루 ${d.pace.cards}장 · 약 ${minutesForCards(d.pace.cards)}분</div>` : '<div class="pace-res one">기간을 골라 주세요</div>';
   return `${A.first ? stepTop(2, 'tolook') : '<header class="top"><h1>공부 계획</h1><button class="btn small" data-act="home">닫기</button></header>'}
   ${A.first ? '<h1 class="hero-title" style="font-size:26px;margin-bottom:14px">공부 계획을 세워요</h1>' : ''}
   ${isMy && curL() ? `<section class="panel order-line"><div class="row-between"><b>공부 순서: ${orderName(curL())}</b><button class="link" data-act="pick" data-arg="pace">바꾸기</button></div>
     <p class="note" style="margin-top:4px">"${esc(myName())}" 목록의 순서예요. 단어 고르는 화면 아래에서 바꿔요.</p></section>`
-  : `<section class="panel order-line"><b>공부 순서: 추천 순서</b>
-    <p class="sub" style="margin-top:2px">조각 → 인체 → 계통별(근골격 → 심혈관 → … → 피부) → 약어</p>
-    <p class="note" style="margin-top:4px">의학용어 수업에서 가장 흔한 순서예요. 교재 순서로 하려면 "내 단어" 목록을 만들 때 순서를 고르세요.</p></section>`}
+  : A.first ? '' : `<details class="panel order-line"><summary><b>공부 순서: 추천 순서</b></summary>
+    <p class="sub" style="margin-top:6px">조각 → 인체 → 계통별(근골격 → 심혈관 → … → 피부) → 약어</p>
+    <p class="note" style="margin-top:4px">의학용어 수업에서 가장 흔한 순서예요. 교재 순서로 하려면 "내 단어" 목록을 만들 때 순서를 고르세요.</p></details>`}
   <section class="panel"><div class="row-between"><h2>① 무엇을 외울까요?</h2><span class="sub">${sel.total}개${sel.remaining < sel.total ? ` · 남은 ${sel.remaining}` : ''}</span></div>
     <div class="seg" style="margin:8px 0 10px">
       <button class="${isMy ? '' : 'on'}" data-act="dscopemode" data-arg="rec"><b>추천 범위</b><small>중요도·단원으로</small></button>
@@ -415,9 +446,10 @@ function viewPace() {
     ${isMy ? `<p class="note">고른 목록의 단어만 공부해요. 목록마다 기간을 따로 정해요. 단어에 필요한 조각은 함께 들어가요.</p>
       ${listBar()}
       <button class="btn" style="width:100%;margin-top:8px" data-act="pick" data-arg="pace">${myIds().length ? `"${esc(myName())}" 단어 고치기` : '단어 고르기'}</button>`
-    : `<p class="note">중요도를 고르고, 필요하면 단원을 골라요. 여러 개 고를 수 있어요.</p>
+    : `<details class="scope-more"${A.first && !A.draft.scopeOpen ? '' : ' open'} data-scopemore><summary>${esc(scopeLabel(d.scope))} ${sel.total}개 · 중요도·단원 바꾸기</summary>
+    <p class="note" style="margin-top:8px">중요도를 고르고, 필요하면 단원을 골라요. 여러 개 고를 수 있어요.</p>
     <div class="opts">${starOpts}</div>
-    <details class="units"${units ? ' open' : ''}><summary>단원 고르기${units ? ` (${units.size}개)` : ' (전체)'}</summary><div class="chips" style="margin-top:10px">${unitChips}</div></details>`}
+    <details class="units"${units ? ' open' : ''}><summary>단원 고르기${units ? ` (${units.size}개)` : ' (전체)'}</summary><div class="chips" style="margin-top:10px">${unitChips}</div></details></details>`}
   </section>
   <section class="panel"><h2>② 며칠 안에 끝낼까요?</h2>
     <p class="note">고른 ${sel.remaining}개를 언제까지 다 외울지 정하면 하루 양을 계산해요.</p>
@@ -425,7 +457,54 @@ function viewPace() {
   </section>
   ${sum}
   ${A.first ? '' : '<p class="note center">계획을 바꿔도 지금까지 공부한 기록은 그대로예요.</p>'}
-  <div class="bottom-cta"><button class="btn primary big" data-act="savepace"${disabled ? ' disabled' : ''}>${A.first ? '이 계획으로 하기' : '저장'}</button></div>`;
+  <div class="bottom-cta pace-cta">${resLine}<button class="btn primary big" data-act="savepace"${disabled ? ' disabled' : ''}>${A.first ? '이 계획으로 하기' : '저장'}</button></div>`;
+}
+
+// 현황 맨 위: 단어 묶음(전체 · 추천 계획 범위 · 내 단어 목록마다)별 현황
+function statSets() {
+  const out = [{ id: 'all', name: '전체 단어', ids: IX.items.map(x => x.id) },
+    { id: 'rec', name: `추천 계획 · ${scopeLabel(A.settings.scope)}`, ids: [...scopeSet(IX, A.settings.scope)] }];
+  for (const l of A.settings.lists || []) {
+    const set = new Set(l.ids);
+    for (const id of l.ids) { const x = IX.get(id); if (x && x.k === 'word') for (const f of x.parts || []) if (IX.get('p:' + f)) set.add('p:' + f); }
+    out.push({ id: l.id, name: `내 단어 · ${l.name}`, ids: [...set], list: l });
+  }
+  return out;
+}
+function setPanel() {
+  const sets = statSets();
+  const cur = sets.find(z => z.id === A.statSet) || sets[0];
+  const opts = { now: Date.now(), retention: A.settings.retention };
+  const sums = new Map(sets.map(z => [z.id, setSummary(IX, A.states, A.log, z.ids, opts)]));
+  const r = sums.get(cur.id);
+  const pc = n => (r.total ? Math.round((n / r.total) * 100) : 0);
+  const ANS = [[1, '모름', 'b1'], [2, '헷갈림', 'b2'], [3, '알 것 같음', 'b3'], [4, '확실히 앎', 'b4'], [0, '아직 안 봄', 'b0']];
+  const seenN = r.last[1] + r.last[2] + r.last[3] + r.last[4];
+  const maxA = Math.max(1, r.last[1], r.last[2], r.last[3], r.last[4]);
+  return `<section class="panel">
+    <h2>무엇을 기준으로 볼까요?</h2>
+    <div class="chips" style="margin:6px 0 12px">${sets.map(z => `<button class="chip${z.id === cur.id ? ' on' : ''}" data-act="statset" data-arg="${z.id}">${esc(z.name)}</button>`).join('')}</div>
+    <div class="sumcard">
+      <div><b>${r.pct}%</b><span>익힘 이상</span></div>
+      <div><b>${r.started}</b><span>공부한 단어 / ${r.total}</span></div>
+      <div><b>${r.today}</b><span>오늘 본 단어</span></div>
+    </div>
+    <div class="bar" aria-hidden="true" style="margin-top:12px"><i class="s-long" style="width:${pc(r.status.long)}%"></i><i class="s-mastered" style="width:${pc(r.status.mastered)}%"></i><i class="s-learning" style="width:${pc(r.status.learning)}%"></i></div>
+    <ul class="legend"><li><i class="s-new"></i>새 단어 ${r.status.new}</li><li><i class="s-learning"></i>배우는 중 ${r.status.learning}</li><li><i class="s-mastered"></i>익힘 ${r.status.mastered}</li><li><i class="s-long"></i>오래 기억 ${r.status.long}</li></ul>
+    <h3 class="st-h">마지막에 누른 답</h3>
+    ${seenN ? `<div class="ansbars">${ANS.filter(([b]) => b).map(([b, l, c]) => `<div class="ab"><span>${l}</span><div class="abar"><i class="${c}" style="width:${Math.round((r.last[b] / maxA) * 100)}%"></i></div><b>${r.last[b]}</b></div>`).join('')}</div>
+    <p class="note" style="margin-top:6px">본 단어 ${seenN}개 중 · 아직 안 본 단어 ${r.last[0]}개</p>` : '<p class="note">아직 이 묶음에서 공부한 단어가 없어요.</p>'}
+    <div class="meter-row" style="margin-top:12px"><span>최근 30일 복습 정답률</span><b>${r.actual == null ? '–' : Math.round(r.actual * 100) + '%'}</b></div>
+    <div class="meter-row"><span>지금 기억하고 있을 확률</span><b>${r.recall == null ? '–' : Math.round(r.recall * 100) + '%'}</b></div>
+    <div class="mk-actions" style="margin-top:12px">
+      <button class="btn" data-act="statstudy" data-arg="${cur.id}">모름·헷갈림 다시 공부</button>
+      <button class="btn" data-act="statquiz" data-arg="${cur.id}">이 묶음으로 시험</button>
+      <button class="btn" data-act="marks">단어 모음</button>
+    </div>
+    ${sets.length > 2 ? `<h3 class="st-h">묶음끼리 비교</h3><table class="cmp"><thead><tr><th>묶음</th><th>단어</th><th>익힘</th><th>모름</th><th>헷갈림</th></tr></thead><tbody>
+      ${sets.map(z => { const q = sums.get(z.id); return `<tr class="${z.id === cur.id ? 'on' : ''}" data-act="statset" data-arg="${z.id}"><td>${esc(z.name)}</td><td>${q.total}</td><td>${q.pct}%</td><td>${q.last[1]}</td><td>${q.last[2]}</td></tr>`; }).join('')}
+    </tbody></table>` : ''}
+  </section>`;
 }
 
 // 현황: 얼마나 공부했고, 얼마나 기억하는지
@@ -440,6 +519,8 @@ function viewStats() {
   const maxAhead = Math.max(1, ...o.ahead.map(a => a.n));
   const wd = ['일', '월', '화', '수', '목', '금', '토'];
   return `<header class="top"><h1>현황</h1><button class="btn small" data-act="home">닫기</button></header>
+  ${setPanel()}
+  <h2 class="sec-h">전체 단어 기준 자세히</h2>
   <section class="panel">
     <h2>얼마나 공부했나</h2>
     <div class="sumcard">
@@ -550,7 +631,9 @@ function viewStudy() {
 
   let side = '', actions = '';
   if (A.phase === 'front') {
-    actions = `<div class="grades">
+    const coach = A.settings.coachSeen ? '' : `<div class="coach-row" aria-hidden="true"><span>전혀 안 떠올라요</span><span>비슷한 말과 섞여요</span><span>조금 생각하면 떠올라요</span><span>바로 떠올라요</span></div>
+      <p class="coach-ok">3·4를 누르면 정답을 보고 맞았는지 한 번 더 물어요 · <button class="link" data-act="coachok">알겠어요</button></p>`;
+    actions = `${coach}<div class="grades">
       <button class="g g1" data-act="grade" data-arg="1"><b>모름</b><small>1</small></button>
       <button class="g g2" data-act="grade" data-arg="2"><b>헷갈림</b><small>2</small></button>
       <button class="g g3" data-act="grade" data-arg="3"><b>알 것 같음</b><small>3</small></button>
@@ -570,7 +653,7 @@ function viewStudy() {
     actions = `<div class="checks one"><button class="btn primary big" data-act="next">알겠어요 <small>Space</small></button></div>`;
   }
   return `<div class="studybar"><div class="progress"><i style="width:${pct}%"></i></div>
-    <div class="studyhead"><span>${Math.min(s.doneCards + (cur.c in s.first ? 0 : 1), s.total)} / ${s.total}</span>
+    <div class="studyhead"><span>${Math.min(s.doneCards + (cur.c in s.first ? 0 : 1), s.total)} / ${s.total}</span>${s.label ? `<span class="studying" title="지금 공부 중">${esc(s.label)}</span>` : ''}
     <button class="close" data-act="home" aria-label="그만하고 홈으로">✕</button></div></div>
     <div class="study ${A.phase}">${face}${side}</div>
     <footer class="actions">${actions}</footer>`;
@@ -681,8 +764,11 @@ async function saveSession() {
   await store.set('session', A.sess && !isDone(A.sess) ? A.sess : null);
 }
 
-function startSession(p, mode = 'daily') {
+// 지금 무엇을 공부하는지 카드 위에 보여 줄 이름
+function planLabel() { const ap = AP(); return ap.track === 'my' ? `내 단어 · ${myName()}` : `추천 · ${scopeLabel(ap.scope)}`; }
+function startSession(p, mode = 'daily', label) {
   A.sess = newSession(p, { now: Date.now(), mode });
+  if (A.sess) A.sess.label = label || (mode === 'quick' ? `3분 복습 · ${planLabel()}` : mode === 'sticky' ? '끈질긴 단어 다시 보기' : mode === 'pick' ? '골라서 공부' : planLabel());
   if (!A.sess.total) { toast('지금 볼 카드가 없어요'); A.sess = null; return; }
   A.view = 'study';
   A.phase = 'front';
@@ -904,7 +990,24 @@ const ACT = {
     go('home');
     toast('공부 계획을 정했어요');
   },
-  sheet: k => { A.sheet = A.sheet === k ? null : k; render(); },
+  sheet: () => go('settings'),
+  settings: () => go('settings'),
+  statset: id => { A.statSet = id; render(); },
+  statstudy: id => {
+    const z = statSets().find(q => q.id === id); if (!z) return;
+    const marks = answerMarks(A.log); const set = new Set(z.ids);
+    const ids = [...marks.values()].filter(m => set.has(m.id) && (m.last === 1 || m.last === 2)).map(m => m.id);
+    if (!ids.length) { toast('모름·헷갈림으로 남은 단어가 없어요'); return; }
+    startSession({ day: dayKey(Date.now()), reviews: ids, fresh: [] }, 'sticky', `${z.name} · 모름·헷갈림`);
+  },
+  statquiz: id => {
+    const z = statSets().find(q => q.id === id); if (!z) return;
+    const ids = z.ids.filter(i => A.states.has(i));
+    A.qcfg = { ...(A.qcfg || QDEFAULT()), ranges: ['ids'], ids: ids.length >= 3 ? ids : z.ids, idsLabel: z.name }; delete A.qcfg.range;
+    go('qset');
+  },
+  coachok: async () => { A.settings.coachSeen = true; await saveSettings(); render(); },
+  adjtoggle: () => { A.adjOpen = !A.adjOpen; render(); },
   ret: async v => { A.settings.retention = Number(v); await store.set('settings', A.settings); recompute(); render(); },
   rn: async v => { A.settings.rn = v === '1'; await store.set('settings', A.settings); render(); },
   rate: async v => { A.settings.rate = Number(v); await store.set('settings', A.settings); render(); sayEn('dyspnea'); },
@@ -1214,12 +1317,15 @@ document.addEventListener('keydown', e => {
 // 종류·중요도·상태·계통으로 걸러서 묶음째 고르고, 하나씩도 고친다. 목록 붙여넣기로 한 번에 찾기.
 const PK_KIND = { '': '전체', part: '조각', word: '단어', abbr: '약어' };
 const PK_STATUS = { '': '전체', new: '새 단어', learning: '배우는 중', wrong: '틀린 적 있음' };
+// 마지막에 누른 답(공부 기록) — 고르는 화면이 열려 있는 동안 한 번만 계산
+function pkMarks() { if (!A.pk._marks) A.pk._marks = answerMarks(A.log); return A.pk._marks; }
 function pkFiltered() {
   const k = A.pk;
   const q = k.q.trim().toLowerCase();
   return IX.items.filter(x => {
     if (k.kind && x.k !== k.kind) return false;
-    if (k.star && x.star !== Number(k.star)) return false;
+    if (k.star && !k.star.split('').includes(String(x.star))) return false;
+    if (k.ans) { const m = pkMarks().get(x.id); if (!m || !k.ans.split('').includes(String(m.last))) return false; }
     if (k.unit && x.unit !== k.unit) return false;
     if (k.grp && !IX.groups[Number(k.grp)].ids.includes(x.id)) return false;
     if (k.status) {
@@ -1240,10 +1346,10 @@ function pkCountText() {
 }
 function pkListHTML() {
   const list = pkFiltered();
-  const filtering = A.pk.q || A.pk.kind || A.pk.star || A.pk.status || A.pk.unit || A.pk.grp;
+  const filtering = A.pk.q || A.pk.kind || A.pk.star || A.pk.ans || A.pk.status || A.pk.unit || A.pk.grp;
   const byUnit = new Map();
   for (const x of list) { if (!byUnit.has(x.unit)) byUnit.set(x.unit, []); byUnit.get(x.unit).push(x); }
-  if (!list.length) return `<p class="note center" style="padding:20px">찾는 단어가 없어요.${A.pk.kind || A.pk.star || A.pk.status || A.pk.unit || A.pk.grp ? ' 위의 거르기를 \'전체\'로 바꿔 보세요.' : ''}</p>`;
+  if (!list.length) return `<p class="note center" style="padding:20px">찾는 단어가 없어요.${A.pk.kind || A.pk.star || A.pk.ans || A.pk.status || A.pk.unit || A.pk.grp ? ' 위의 거르기를 \'전체\'로 바꿔 보세요.' : ''}</p>`;
   return `<div class="row-between pk-bulk"><span class="sub">보이는 단어 ${list.length}개</span>
       <span><button class="link" data-act="pkall" data-arg="1">모두 선택</button> · <button class="link" data-act="pkall" data-arg="0">모두 해제</button></span></div>` +
     [...byUnit].map(([uid, xs]) => {
@@ -1259,16 +1365,20 @@ function pkListHTML() {
 }
 function viewPick() {
   const k = A.pk;
+  // 여러 개 고르는 칩: '전체'(아무것도 안 고름) + 각 값 켜고 끄기
+  const multi = (key, items) => `<button class="chip${k[key] ? '' : ' on'}" data-act="pkm" data-arg="${key}:">전체</button>` +
+    items.map(([v, l]) => `<button class="chip${(k[key] || '').includes(v) ? ' on' : ''}" data-act="pkm" data-arg="${key}:${v}">${l}</button>`).join('');
   const chips = (key, map) => (Array.isArray(map) ? map : Object.entries(map)).map(([v, l]) => `<button class="chip${k[key] === v ? ' on' : ''}" data-act="pkf" data-arg="${key}:${v}">${l}</button>`).join('');
-  const grpSel = `<select class="pk-grp" data-pkgrp><option value="">헷갈리는 묶음: 전체</option>${IX.groups.map((g, i) => g.ids.length ? `<option value="${i}"${k.grp === String(i) ? ' selected' : ''}>${esc(g.t)} (${g.ids.length})</option>` : '').join('')}</select>`;
+  const grpSel = `<select class="pk-grp" data-pkgrp><option value="">고르지 않음 (모든 단어)</option>${IX.groups.map((g, i) => g.ids.length ? `<option value="${i}"${k.grp === String(i) ? ' selected' : ''}>${esc(g.t)} (${g.ids.length})</option>` : '').join('')}</select>`;
   return `<header class="top"><h1>${k.quiz ? '골라서 시험' : k.study ? '골라서 공부' : esc(myName()) + ' 고르기'}</h1><button class="btn small" data-act="pkcancel">취소</button></header>
   ${k.study ? '<p class="note" style="margin:-4px 2px 10px">단원·중요도·묶음으로 골라서 지금 바로 공부해요. 공부 계획은 바뀌지 않아요.</p>' : ''}
   <section class="panel pk-filter">
     <input class="pk-search" type="search" placeholder="영어·한글로 찾기 (예: cardi, 심장)" value="${esc(k.q)}" data-pksearch>
     <div class="pk-row"><span>종류</span><div class="chips">${chips('kind', PK_KIND)}</div></div>
-    <div class="pk-row"><span>중요도</span><div class="chips">${chips('star', [['', '전체'], ['3', '★★★'], ['2', '★★'], ['1', '★']])}</div></div>
+    <div class="pk-row"><span>중요도</span><div class="chips">${multi('star', [['3', '★★★'], ['2', '★★'], ['1', '★']])}</div></div>
+    <div class="pk-row"><span>내 답</span><div><div class="chips">${multi('ans', [['1', '모름'], ['2', '헷갈림'], ['3', '알 것 같음'], ['4', '확실히 앎']])}</div><p class="note" style="margin-top:4px">공부할 때 마지막에 누른 답이에요. 여러 개 고를 수 있어요.</p></div></div>
     <div class="pk-row"><span>상태</span><div class="chips">${chips('status', PK_STATUS)}</div></div>
-    <div class="pk-row"><span>묶음</span><div>${grpSel}</div></div>
+    <div class="pk-row"><span>헷갈리는<br>용어 묶음</span><div>${grpSel}<p class="note" style="margin-top:4px">앱이 미리 모아 둔 서로 헷갈리기 쉬운 용어 80묶음이에요 (예: 피가 나오는 곳). 내가 "헷갈림"을 누른 단어는 위의 "내 답"에서 골라요.</p></div></div>
     <div class="pk-row"><span>계통</span><div class="chips">${chips('unit', [['', '전체'], ...IX.units.map(u => [u.id, u.short])])}</div></div>
     <details class="pk-paste"><summary>단어 목록 붙여넣기 (교수님 목록 등)</summary>
       <textarea rows="4" data-pkpaste placeholder="영어 단어를 줄바꿈이나 쉼표로 나눠 붙여 넣으세요"></textarea>
@@ -1306,7 +1416,7 @@ Object.assign(ACT, {
     if (back === 'quiz') { ACT.pick('study'); A.pk.quiz = true; A.pk.back = 'qset'; render(); return; }
     const study = back === 'study';
     if (!study && !curL()) newList();
-    A.pk = { order: !study && curL() ? { ...(curL().order || { mode: 'rec' }) } : { mode: 'rec' }, sel: new Set(study ? [] : myIds()), q: '', kind: '', star: '', status: '', unit: '', grp: '', open: new Set(), back: study ? 'home' : back || A.view, study };
+    A.pk = { order: !study && curL() ? { ...(curL().order || { mode: 'rec' }) } : { mode: 'rec' }, sel: new Set(study ? [] : myIds()), q: '', kind: '', star: '', ans: '', status: '', unit: '', grp: '', open: new Set(), back: study ? 'home' : back || A.view, study };
     go('pickw');
   },
   pkstudy: () => {
@@ -1322,7 +1432,7 @@ Object.assign(ACT, {
     const MAXNEW = 40;
     if (fresh.length > MAXNEW) { toast(`새 단어는 한 번에 ${MAXNEW}개까지 넣었어요. 나머지는 다음에 다시 골라 주세요.`, 4000); fresh = fresh.slice(0, MAXNEW); }
     A.pk = null;
-    startSession({ day: dayKey(Date.now()), reviews, fresh }, 'pick');
+    startSession({ day: dayKey(Date.now()), reviews, fresh }, 'pick', `골라서 공부 · ${all.length}개`);
   },
   pkquiz: () => {
     const ids = [...A.pk.sel];
@@ -1339,6 +1449,12 @@ Object.assign(ACT, {
     toast(`"${myName()}"에 ${set.size - before}개를 더했어요 (모두 ${set.size}개)`);
   },
   pkf: arg => { const [key, v] = arg.split(':'); A.pk[key] = v; render(); },
+  pkm: arg => {
+    const [key, v] = arg.split(':');
+    if (!v) A.pk[key] = '';
+    else { const cur = new Set((A.pk[key] || '').split('').filter(Boolean)); if (cur.has(v)) cur.delete(v); else cur.add(v); A.pk[key] = [...cur].sort().reverse().join(''); }
+    render();
+  },
   pkall: on => { for (const x of pkFiltered()) { if (on === '1') A.pk.sel.add(x.id); else A.pk.sel.delete(x.id); } pkRefreshList(); },
   pkunit: uid => {
     const xs = pkFiltered().filter(x => x.unit === uid);
@@ -1375,6 +1491,7 @@ Object.assign(ACT, {
   },
 });
 document.addEventListener('input', e => {
+  if (e.target.matches('input[data-hsearch]')) { A.hq = e.target.value; const el = document.getElementById('hsres'); if (el) el.innerHTML = hsearchHTML(); return; }
   if (e.target.matches('input[data-pksearch]') && A.pk) { A.pk.q = e.target.value; pkRefreshList(); }
 });
 document.addEventListener('change', e => {
@@ -1386,6 +1503,7 @@ document.addEventListener('change', e => {
   if (id && A.pk) { if (e.target.checked) A.pk.sel.add(id); else A.pk.sel.delete(id); const c = document.getElementById('pkcount'); if (c) c.innerHTML = pkCountText(); }
 });
 document.addEventListener('toggle', e => {
+  if (e.target.matches && e.target.matches('details[data-scopemore]') && A.draft) A.draft.scopeOpen = e.target.open;
   if (e.target.matches && e.target.matches('details.pk-unit') && A.pk) { const u = e.target.dataset.unit; if (e.target.open) A.pk.open.add(u); else A.pk.open.delete(u); }
 }, true);
 
@@ -1482,7 +1600,7 @@ Object.assign(ACT, {
     render();
     toast(on ? '★ 아주 중요 단어에 넣었어요' : '아주 중요 표시를 뺐어요');
   },
-  mkstudy: () => startSession({ day: dayKey(Date.now()), reviews: mkIds(), fresh: [] }, 'sticky'),
+  mkstudy: () => startSession({ day: dayKey(Date.now()), reviews: mkIds(), fresh: [] }, 'sticky', `단어 모음 · ${mkName()}`),
   mkquiz: () => {
     A.qcfg = { ...(A.qcfg || QDEFAULT()), ranges: ['ids'], ids: mkIds(), idsLabel: mkName() }; delete A.qcfg.range;
     go('qset');
