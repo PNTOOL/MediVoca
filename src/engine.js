@@ -6,7 +6,8 @@ export const RULES = {
   dailyCards: 50,     // 하루 장수 (복습 + 새 단어)
   newMin: 5,          // 새 단어 최소
   newMax: 30,         // 새 단어 최대
-  reviewMax: 100,     // 밀린 복습은 하루 이만큼까지
+  reviewMax: 100,     // 복습은 하루 이만큼까지 (넘치면 다음 날로 나눔)
+  backlogAt: 10,      // 밀린 복습이 이보다 많으면 새 단어를 쉰다
   againGap: 5,        // 모름·헷갈림 카드는 이만큼 뒤에 다시
   masteredDays: 3,    // 다른 날 이만큼 맞히면 익힘
   longDays: 21,       // 다음 복습까지 이만큼 이상이면 오래 기억
@@ -276,7 +277,10 @@ export function planToday(index, states, { now = Date.now(), retention = 0.9, pa
   const reviews = due.slice(0, reviewRoom).map(s => s.id);
   const reviewsTotal = reviewedToday + due.length;
   // 날짜 목표가 있으면 계산한 수를 따르고(밀려도 쉬지 않음), 없으면 하루 장수에서 복습을 뺀 나머지
-  const backlog = !goal && reviewsTotal > dailyCards;
+  // 밀린 복습 = 어제까지 봤어야 했는데 못 본 카드 (빠진 날이 있을 때). 10장 넘게 밀리면 새 단어를 쉰다.
+  const dayStart = end - DAY;
+  const overdue = due.filter(s => s.card.due.getTime() < dayStart).length;
+  const backlog = !goal && overdue > RULES.backlogAt;
   const newQuota = goal ? (goal.ended ? Math.min(newMax, Math.max(RULES.newMin, dailyCards - reviewsTotal)) : goal.perDay)
     : backlog ? 0 : Math.min(newMax, Math.max(RULES.newMin, dailyCards - reviewsTotal));
   const newLeft = Math.max(0, newQuota - newToday) + extraNew;
@@ -286,6 +290,7 @@ export function planToday(index, states, { now = Date.now(), retention = 0.9, pa
     reviews,
     fresh,
     backlog,
+    overdue,
     dueTotal: due.length,
     reviewedToday,
     newToday,

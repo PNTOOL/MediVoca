@@ -20,4 +20,4 @@
 - `pairs.js`: 헷갈리는 짝. `sa`와 `sb`의 항목은 같은 날 처음 배우지 않는다. `w`는 설명에 짝을 보여 줄 항목.
 - `index.js`: 파일 목록. 새 파일을 만들면 여기에 더한다.
 - 고친 뒤에는 `npm run check`로 빈 칸, 중복, 없는 조각 참조를 검사한다.
-- 처음 727개는 `scripts/convert-harang.mjs`로 하랑노트에서 옮겼다. 지금은 이 폴더가 원본이다.
+- 처음 727개는 `scripts/convert-harang.mjs`로 하랑노트에서 옮겼고, 나머지는 `scripts/add-terms.mjs`로 더했다(파일 맨 위에 형식 설명). 지금은 이 폴더가 원본이다.

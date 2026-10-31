@@ -22,7 +22,7 @@ for (const f of files) loaded[f] = (await import(pathToFileURL(path.join(DATA, f
 const unitFile = Object.fromEntries(files.map(f => [loaded[f].unit.id, f]));
 const allIds = new Set(files.flatMap(f => loaded[f].items.map(x => x.id)));
 
-for (const addPath of process.argv.slice(2)) {
+if (process.argv[1] && process.argv[1].endsWith("add-terms.mjs")) for (const addPath of process.argv.slice(2)) {
   const add = (await import(pathToFileURL(path.resolve(addPath)).href)).default;
   const f = unitFile[add.unit];
   if (!f) throw new Error('없는 장: ' + add.unit);

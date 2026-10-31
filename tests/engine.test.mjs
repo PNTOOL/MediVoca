@@ -120,12 +120,12 @@ test('조각을 안 배운 단어는 새 단어로 나오지 않는다', () => {
   }
 });
 
-test('하루 50장: 처음엔 새 단어 30개(최대), 복습이 많으면 새 단어가 줄고, 50장을 넘으면 쉰다', () => {
+test('하루 50장: 처음엔 새 단어 30개(최대), 복습이 많아도 최소 5개, 빠진 날이 있으면 새 단어를 쉰다', () => {
   const p0 = planToday(IX, new Map(), { now: T0 });
   assert.equal(p0.reviews.length, 0);
   assert.equal(p0.fresh.length, RULES.newMax);
 
-  const mk = n => { const log = []; IX.items.slice(0, n).forEach((x, i) => log.push(ev(T0 - DAY + i, x.id, 1))); return replay(log); };
+  const mk = (n, ago = 1) => { const log = []; IX.items.slice(0, n).forEach((x, i) => log.push(ev(T0 - ago * DAY + i, x.id, 1))); return replay(log); };
   const p1 = planToday(IX, mk(40), { now: T0 });
   assert.equal(p1.reviews.length, 40);
   assert.equal(p1.fresh.length, 10);
@@ -133,10 +133,14 @@ test('하루 50장: 처음엔 새 단어 30개(최대), 복습이 많으면 새 
   const p2 = planToday(IX, mk(48), { now: T0 });
   assert.equal(p2.fresh.length, RULES.newMin); // 최소 5
 
-  const p3 = planToday(IX, mk(120), { now: T0 });
-  assert.ok(p3.backlog);
-  assert.equal(p3.fresh.length, 0);
-  assert.equal(p3.reviews.length, RULES.reviewMax);
+  const p3 = planToday(IX, mk(70), { now: T0 });  // 매일 했는데 오늘 복습이 70장 → 그래도 새 단어 5개
+  assert.ok(!p3.backlog);
+  assert.equal(p3.fresh.length, RULES.newMin);
+
+  const p4 = planToday(IX, mk(120, 3), { now: T0 }); // 이틀 빠져서 밀림 → 새 단어 쉬고 복습은 100장까지
+  assert.ok(p4.backlog);
+  assert.equal(p4.fresh.length, 0);
+  assert.equal(p4.reviews.length, RULES.reviewMax);
 });
 
 test('오늘 이미 본 만큼은 빼고 남은 할 일만 나온다', () => {
