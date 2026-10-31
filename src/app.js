@@ -2,7 +2,7 @@
 import { UNITS, PAIRS, CONFUSIONS } from '../data/index.js';
 import { buildIndex } from './data.js';
 import {
-  RULES, replay, planToday, newOrder, newSession, current, answer, isDone,
+  RULES, replay, planToday, ratingOf, newOrder, newSession, current, answer, isDone,
   progress, streak, daySummary, dayKey, setSummary, isSyl, sylUnits, makeSyl, LIST_ORDERS, MARKS, answerMarks, marksList, PACES, paceInfo, scopeSet, scopeLabel, normScope, scopeUnits, makeScope, overview,
   minutesForCards, daysBetween, scopeStars,
 } from './engine.js';
@@ -10,6 +10,7 @@ import { guideHTML } from './guide.js';
 import { THEMES, LOOKS, themeOf, applyLook } from './themes.js';
 import { QTYPES, buildQuiz, grade, summarize, spellHard } from './quiz.js';
 import { runFunnel, countIf, groupsIn, STEPS } from './funnel.js';
+import { dayStats, weekSummary, masteredSeries, mergeHistory } from './history.js';
 import { makeBackup, backupName, parseBackup, mergeLogs, mergeNotes, mergeFlags } from './backup.js';
 import { esc, rich, speakable, normEn, normKo } from './text.js';
 import * as store from './store.js';
@@ -64,6 +65,7 @@ async function boot() {
   }
   A.notes = await store.get('notes', {});
   A.flags = await store.get('flags', {});
+  A.history = await store.get('history', []);
   A.qmarks = await store.get('qmarks', {});
   A.lastBackup = await store.get('lastBackup', 0);
   A.quizzes = await store.get('quizzes', []);
@@ -132,7 +134,7 @@ const saveSettings = () => store.set('settings', A.settings);
 
 // ───────── 그리기 ─────────
 function render() {
-  const V = { study: viewStudy, end: viewEnd, guide: () => guideHTML(false), pace: viewPace, welcome: viewWelcome, look: viewLook, ready: viewReady, stats: viewStats, qset: viewQuizSet, qrun: viewQuizRun, qres: viewQuizResult, card: viewCard, pickw: viewPick, marks: viewMarks, settings: viewSettingsPage, way: viewWay, syl: viewSyl, history: viewStats };
+  const V = { study: viewStudy, end: viewEnd, guide: () => guideHTML(false), pace: viewPace, welcome: viewWelcome, look: viewLook, ready: viewReady, stats: viewStats, qset: viewQuizSet, qrun: viewQuizRun, qres: viewQuizResult, card: viewCard, pickw: viewPick, marks: viewMarks, settings: viewSettingsPage, way: viewWay, syl: viewSyl, history: viewHistory };
   const v = (V[A.view] || viewHome)();
   const nav = NAV_VIEWS.has(A.view) || !V[A.view];
   $app.innerHTML = v + (nav ? bottomNav() : '');
@@ -585,6 +587,63 @@ function setPanel() {
   </section>`;
 }
 
+// ───────── 기록 탭: 언제 얼마나, 무엇을, 얼마나 잘 ─────────
+function viewHistory() {
+  const today = dayKey(Date.now());
+  const st = dayStats(A.log);
+  const w = weekSummary(st, today);
+  const streakN = streak(A.log);
+  const pc = x => (x == null ? '–' : Math.round(x * 100) + '%');
+  const diff = (a, b, unit) => (b ? (a > b ? `<em class="up">▲ 지난주보다 ${a - b}${unit}</em>` : a < b ? `<em class="down">▼ 지난주보다 ${b - a}${unit}</em>` : '<em>지난주와 같아요</em>') : '');
+  // 달력
+  const month = A.calMonth || today.slice(0, 7);
+  const [yy, mm] = month.split('-').map(Number);
+  const first = new Date(yy, mm - 1, 1);
+  const daysIn = new Date(yy, mm, 0).getDate();
+  const pad = (first.getDay() + 6) % 7;
+  const lvl = n => (!n ? 0 : n <= 20 ? 1 : n <= 50 ? 2 : n <= 100 ? 3 : 4);
+  const sel = A.calDay || today;
+  const cells = [...Array(pad).fill('<span></span>'), ...Array.from({ length: daysIn }, (_, i) => {
+    const k = `${month}-${String(i + 1).padStart(2, '0')}`; const s = st.get(k);
+    return `<button class="cd l${lvl(s && s.cards)}${k === sel ? ' sel' : ''}${k === today ? ' today' : ''}" data-act="calday" data-arg="${k}"${k > today ? ' disabled' : ''} aria-label="${i + 1}일 ${s ? s.cards + '장' : '공부 안 함'}">${i + 1}</button>`;
+  })].join('');
+  const prevM = (() => { const d = new Date(yy, mm - 2, 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; })();
+  const nextM = (() => { const d = new Date(yy, mm, 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; })();
+  // 고른 날
+  const ds = st.get(sel);
+  const sess = A.history.filter(h => dayKey(h.t0) === sel).sort((a, b) => a.t0 - b.t0);
+  const qz = (A.quizzes || []).filter(q => dayKey(q.t) === sel);
+  const hm = t => new Date(t).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false });
+  const dayBox = ds ? `<div class="sumcard"><div><b>${ds.cards}</b><span>본 카드</span></div><div><b>${ds.fresh}</b><span>새 단어</span></div><div><b>${Math.max(1, Math.round(ds.ms / 60000))}분</b><span>공부 시간</span></div></div>
+    <p class="note" style="margin-top:8px">처음 본 답 정답률 ${pc(ds.firstN ? ds.firstOk / ds.firstN : null)} · 모름 ${ds.ans[1]} · 헷갈림 ${ds.ans[2]} · 알 것 같음 ${ds.ans[3]} · 확실히 앎 ${ds.ans[4]}</p>
+    ${sess.length ? `<ul class="sesslist">${sess.map(h => `<li><span class="tm">${hm(h.t0)}~${hm(h.t1)}</span><b>${esc(h.label)}</b><span>${h.n}장${h.fresh ? ` · 새 ${h.fresh}` : ''} · 정답 ${pc(h.first ? h.ok / h.first : null)}</span></li>`).join('')}</ul>` : '<p class="note">이 날 무엇을 공부했는지는 기록이 없어요 (예전 기록이거나 다른 기기).</p>'}`
+    : '<p class="note">이 날은 공부하지 않았어요.</p>';
+  const qBox = qz.length ? `<ul class="sesslist">${qz.map(q => `<li><span class="tm">${hm(q.t)}</span><b>시험 · ${q.mode === 'exam' ? '실전' : '연습'} ${q.n}문항</b><span>${q.pct}점</span></li>`).join('')}</ul>` : '';
+  // 최근 30일 그래프: 막대 = 본 카드, 선 = 익힌 단어
+  const series = masteredSeries(A.states, today, 30);
+  const maxC = Math.max(10, ...series.map(z => (st.get(z.day) || { cards: 0 }).cards));
+  const maxM = Math.max(5, ...series.map(z => z.n));
+  const W = 300, H = 110;
+  const bars = series.map((z, i) => { const c = (st.get(z.day) || { cards: 0 }).cards; const h = Math.round((c / maxC) * (H - 20)); return `<rect x="${i * 10 + 1}" y="${H - h}" width="8" height="${h}" rx="2" class="gb"><title>${z.day} ${c}장</title></rect>`; }).join('');
+  const line = series.map((z, i) => `${i * 10 + 5},${H - Math.round((z.n / maxM) * (H - 20)) - 2}`).join(' ');
+  const graph = `<svg viewBox="0 0 ${W} ${H}" class="hgraph" role="img" aria-label="최근 30일 본 카드와 익힌 단어">${bars}<polyline points="${line}" class="gl" fill="none"/></svg>
+    <div class="glegend"><span><i class="gb"></i>날마다 본 카드 (가장 많은 날 ${maxC}장)</span><span><i class="gl"></i>익힌 단어 누적 (${series[series.length - 1].n}개)</span></div>`;
+  return `<header class="top"><h1>공부 기록</h1>${streakN ? `<span class="pill">${IC.flame}${streakN}일 연속</span>` : ''}</header>
+  <section class="panel"><h2>이번 주</h2>
+    <div class="sumcard"><div><b>${w.thisWeek.days}<small>/7일</small></b><span>공부한 날</span></div><div><b>${w.thisWeek.cards}</b><span>본 카드</span></div><div><b>${w.thisWeek.minutes}분</b><span>공부 시간</span></div></div>
+    <div class="wkcmp">${diff(w.thisWeek.cards, w.lastWeek.cards, '장')}<span>정답률 ${pc(w.thisWeek.acc)}</span><span>새 단어 ${w.thisWeek.fresh}개</span></div>
+    <p class="note" style="margin-top:6px">최근 30일: ${w.last30.days}일 공부 · 하루 평균 ${w.last30.days ? Math.round(w.last30.cards / w.last30.days) : 0}장 · ${w.last30.days ? Math.round(w.last30.minutes / w.last30.days) : 0}분</p>
+  </section>
+  <section class="panel"><div class="row-between"><button class="icon-btn" data-act="calmonth" data-arg="${prevM}" aria-label="지난달">‹</button><h2>${yy}년 ${mm}월</h2><button class="icon-btn" data-act="calmonth" data-arg="${nextM}" aria-label="다음 달"${nextM > today.slice(0, 7) ? ' disabled' : ''}>›</button></div>
+    <div class="cal"><span>월</span><span>화</span><span>수</span><span>목</span><span>금</span><span>토</span><span>일</span>${cells}</div>
+    <div class="cal-legend">적게 <i class="l1"></i><i class="l2"></i><i class="l3"></i><i class="l4"></i> 많이 · 날짜를 누르면 그날 한 일이 보여요</div>
+  </section>
+  <section class="panel"><h2>${fmtDate(sel, { month: 'long', day: 'numeric', weekday: 'short' })}${sel === today ? ' (오늘)' : ''}</h2>${dayBox}${qBox}</section>
+  <section class="panel"><h2>최근 30일 진도</h2>${graph}</section>
+  ${setPanel()}
+  <button class="btn" style="width:100%" data-act="stats">자세한 현황 (중요도별·장별·앞으로 7일 복습)</button>`;
+}
+
 // 현황: 얼마나 공부했고, 얼마나 기억하는지
 function viewStats() {
   const o = overview(IX, A.log, A.states, { now: Date.now(), retention: A.settings.retention });
@@ -596,9 +655,8 @@ function viewStats() {
   const recall = o.recall == null ? null : Math.round(o.recall * 100);
   const maxAhead = Math.max(1, ...o.ahead.map(a => a.n));
   const wd = ['일', '월', '화', '수', '목', '금', '토'];
-  return `<header class="top"><h1>현황</h1><button class="btn small" data-act="home">닫기</button></header>
-  ${setPanel()}
-  <h2 class="sec-h">전체 단어 기준 자세히</h2>
+  return `<header class="top"><h1>자세한 현황</h1><button class="btn small" data-act="history">기록으로</button></header>
+  <h2 class="sec-h">전체 단어 기준</h2>
   <section class="panel">
     <h2>얼마나 공부했나</h2>
     <div class="sumcard">
@@ -878,12 +936,28 @@ async function record(b, ok) {
   try { await recordNow(b, ok); } finally { A.busy = false; }
 }
 async function recordNow(b, ok) {
+  const cur = current(A.sess);
+  const wasFirst = cur && !(cur.c in A.sess.first);
+  const wasNew = cur && !A.states.has(cur.c);
   const e = answer(A.sess, b, ok, { now: Date.now(), device: A.settings.device });
   if (!e) return;
   A.log.push(e);
   await store.addLog([e]);
   recompute();
+  await noteHistory(e, wasFirst, wasNew);
   await saveSession();
+}
+// 공부 한 번 요약(무엇을, 언제, 몇 장): 기록 탭에서 "어떤 목록을 언제 공부했는지" 보여 준다
+async function noteHistory(e, wasFirst, wasNew) {
+  const S = A.sess;
+  if (!S.hid) S.hid = `${e.t}|${A.settings.device}`;
+  let h = A.history.find(z => z.id === S.hid);
+  if (!h) { h = { id: S.hid, t0: e.t, t1: e.t, label: S.label || '공부', key: S.key || '', n: 0, fresh: 0, ok: 0, first: 0 }; A.history.push(h); }
+  h.t1 = e.t; h.n++;
+  if (wasNew) h.fresh++;
+  if (wasFirst) { h.first++; if (ratingOf(e) >= 3) h.ok++; }
+  if (A.history.length > 2000) A.history = A.history.slice(-2000);
+  await store.set('history', A.history);
 }
 
 function nextCard() {
@@ -1140,6 +1214,10 @@ const ACT = {
     A.first = true; A.draft = null; go('welcome');
   },
   history: () => go('history'),
+  lstudy: async id => { A.settings.curList = id; A.settings.track = 'my'; syncMy(); await saveSettings(); await switchSess(); go('home'); toast(`${planLabel()}${A.sess ? ' · 하던 곳부터 이어서' : ''}`); },
+  ledit: async id => { A.settings.curList = id; syncMy(); await saveSettings(); ACT.pick('marks'); },
+  calmonth: m => { A.calMonth = m; render(); },
+  calday: d => { A.calDay = d; render(); },
   settings: () => go('settings'),
   statset: id => { A.statSet = id; render(); },
   statstudy: id => {
@@ -1735,7 +1813,14 @@ function viewMarks() {
       <button class="mk-row" data-act="opencard" data-arg="${esc(x.id)}"><b lang="en">${esc(x.t)}</b><span>${esc(x.ko.join(' · '))}</span>${z.info ? `<small>${z.info}</small>` : ''}</button>
       <button class="mk-flag${f ? ' on' : ''}" data-act="flag" data-arg="${esc(x.id)}" aria-label="아주 중요 ${f ? '빼기' : '표시'}">${f ? '★' : '☆'}</button></li>`; }).join('');
   const empty = { flag: '단어 카드에서 ☆를 누르면 여기에 모여요.', my: '"내 단어 고르기"에서 단어를 골라 보세요.', qw: '시험에서 틀린 단어가 여기에 모여요.', qu: '시험에서 "헷갈렸어요"를 누른 단어가 여기에 모여요.' }[cur.k] || '아직 없어요.';
-  return `<header class="top"><h1>단어 모음</h1><button class="btn small" data-act="home">닫기</button></header>
+  const lists = A.settings.lists || [];
+  const listCards = lists.map(l => { const keep = IX.myList; IX.myList = l.ids; const pr = progress(IX, A.states, 'my'); IX.myList = keep; const pct = pr.total ? Math.round(((pr.mastered + pr.long) / pr.total) * 100) : 0;
+    return `<li><span class="ln"><b>${esc(l.name)}</b><small>${l.ids.length}개 · 익힘 ${pct}% · ${orderName(l)}</small></span><button class="chip" data-act="lstudy" data-arg="${l.id}">공부</button><button class="chip" data-act="ledit" data-arg="${l.id}">고치기</button></li>`; }).join('');
+  return `<header class="top"><h1>단어</h1></header>
+  <div class="hsearch"><span class="hs-ic">${IC.search}</span><input type="search" data-hsearch placeholder="단어 찾기 (영어·한글)" value="${esc(A.hq || '')}" autocomplete="off"><div id="hsres">${hsearchHTML()}</div></div>
+  <section class="panel"><div class="row-between"><h2>내 단어 목록</h2><button class="link" data-act="planpick" data-arg="new-my">+ 새 목록</button></div>
+    ${lists.length ? `<ul class="mylists">${listCards}</ul>` : '<p class="note">직접 고른 단어 목록이 없어요. "+ 새 목록"으로 만들어 보세요.</p>'}</section>
+  <h2 class="sec-h">단어 모음</h2>
   <section class="mk-head">${tiles}</section>
   <section class="panel">
     <div class="row-between"><h2>${cur.icon ? cur.icon + ' ' : ''}${cur.name} ${list.length}개</h2>${cur.sub ? `<span class="sub">${cur.sub}</span>` : ''}</div>
@@ -1795,7 +1880,7 @@ document.addEventListener('change', e => {
 // ───────── 백업 ─────────
 async function sendBackup() {
   const now = Date.now();
-  const data = makeBackup(A.log, { device: A.settings.device, label: A.settings.label, now, notes: A.notes, flags: A.flags });
+  const data = makeBackup(A.log, { device: A.settings.device, label: A.settings.label, now, notes: A.notes, flags: A.flags, history: A.history });
   const name = backupName(A.settings.label, now);
   const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
   let file = null;
@@ -1828,6 +1913,8 @@ async function importText(text) {
   if (nm.changed) { A.notes = nm.notes; await store.set('notes', A.notes); }
   const fm = mergeFlags(A.flags, o.flags);
   if (fm.changed) { A.flags = fm.flags; await store.set('flags', A.flags); }
+  const hm = mergeHistory(A.history, o.history);
+  if (hm.changed) { A.history = hm.history; await store.set('history', A.history); }
   recompute();
   if (A.view === 'welcome') go('way'); else render();
   const from = o.label ? `(${o.label}에서 보냄) ` : '';

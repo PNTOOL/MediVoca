@@ -21,10 +21,11 @@ const slim = e => {
   return o;
 };
 
-export function makeBackup(log, { device, label, now = Date.now(), notes, flags } = {}) {
+export function makeBackup(log, { device, label, now = Date.now(), notes, flags, history } = {}) {
   const o = { app: APP, v: VERSION, ts: now, device, label, log: log.map(slim) };
   if (notes && Object.keys(notes).length) o.notes = notes;
   if (flags && Object.keys(flags).length) o.flags = flags;
+  if (history && history.length) o.history = history;
   return o;
 }
 
