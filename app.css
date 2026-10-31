@@ -2,10 +2,10 @@
  * 색 테마 5가지(data-theme)와 모양 2가지(data-look: basic 기본, soft 부드러움)를 <html>에 붙여 바꾼다.
  * 폰은 세로 한 손, 컴퓨터는 넓게(카드 왼쪽, 설명 오른쪽).
  */
-@import url("vendor/fonts/gowun-dodum/gowun-dodum.css");
+@import url("vendor/fonts/pretendard/pretendard.css");
 
 :root {
-  --font: system-ui, -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", "Segoe UI", sans-serif;
+  --font: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, system-ui, "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", sans-serif;
   --ink: #1d1d20; --sub: #5b5b62; --line: #e4e2e2; --card: #ffffff; --white: #ffffff;
   --safe-b: env(safe-area-inset-bottom, 0px);
   /* 기본 테마 = 로즈(파스텔). pri = 버튼·칸 배경(파스텔), pri-ink = 그 위 글자(진한 같은 색), deep = 글자·링크용 진한 색 */
@@ -18,7 +18,7 @@
 [data-theme="mint"], [data-theme="sage"]     { --pri: #8fd1b3; --pri-ink: #173d2e; --deep: #2f6e55; --tint: #edf8f3; --tint2: #d5f0e3; --mid: #b2e2cc; --mid-ink: #1d4a38; --bg: #f8fcfa; }
 [data-theme="peach"], [data-theme="sunset"]  { --pri: #f4ab86; --pri-ink: #5a2810; --deep: #9a4a22; --tint: #fff3ec; --tint2: #fde2d3; --mid: #f9c9ad; --mid-ink: #642e13; --bg: #fffaf7; }
 
-/* 모양: 기본은 또렷한 카드와 테두리, 부드러움은 둥근 알약 버튼·그림자·고운돋움 제목 */
+/* 모양: 기본은 또렷한 카드와 테두리, 부드러움은 둥근 알약 버튼·은은한 그림자. 글꼴은 둘 다 Pretendard */
 :root, [data-look="basic"] {
   --r-card: 16px; --r-btn: 14px; --r-g: 18px; --r-chip: 99px;
   --display: var(--font); --display-w: 700;
@@ -26,7 +26,7 @@
 }
 [data-look="soft"] {
   --r-card: 24px; --r-btn: 999px; --r-g: 24px;
-  --display: "Gowun Dodum", var(--font); --display-w: 400;
+  --display: var(--font); --display-w: 700;
   --card-border: 1px solid transparent; --card-shadow: 0 1px 2px rgba(40, 20, 30, 0.05), 0 6px 20px rgba(40, 20, 30, 0.05);
 }
 
@@ -44,7 +44,8 @@
 html { -webkit-text-size-adjust: 100%; }
 body {
   margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font);
-  font-size: 16px; line-height: 1.55; word-break: keep-all; overflow-wrap: anywhere;
+  font-size: 16px; line-height: 1.55; word-break: keep-all; overflow-wrap: anywhere; letter-spacing: -0.01em;
+  -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; text-rendering: optimizeLegibility;
   -webkit-tap-highlight-color: transparent; transition: background 0.2s;
 }
 button { font: inherit; color: inherit; }
@@ -130,7 +131,7 @@ label.btn { width: 100%; }
 .seg button b { font-size: 15px; }
 .seg button small { font-size: 12.5px; color: var(--sub); }
 .seg button.on { border-color: var(--deep); background: var(--tint); }
-.seg .soft-demo { font-family: "Gowun Dodum", var(--font); font-weight: 400; font-size: 16px; }
+.seg .soft-demo { font-weight: 600; font-size: 16px; }
 
 /* 공부 계획 */
 .opts { display: grid; gap: 8px; margin-top: 8px; }

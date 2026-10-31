@@ -10,7 +10,7 @@ export const THEMES = [
 const OLD = { burgundy: 'rose', glacier: 'sky', sage: 'mint', sunset: 'peach' };
 export const LOOKS = [
   { id: 'basic', name: '기본', desc: '또렷한 카드와 테두리' },
-  { id: 'soft', name: '부드러움', desc: '둥근 버튼과 손글씨 제목' },
+  { id: 'soft', name: '부드러움', desc: '둥근 버튼과 은은한 그림자' },
 ];
 export const themeOf = id => THEMES.find(t => t.id === (OLD[id] || id)) || THEMES[0];
 
