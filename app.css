@@ -269,6 +269,22 @@ details.units .chip { min-height: 38px; }
 .mk-row span { color: var(--sub); font-size: 14px; }
 .mk-row small { grid-column: 1 / -1; color: var(--sub); font-size: 12px; }
 
+/* 홈: 추천 단어 / 내 단어, 오늘 양 */
+.track-seg { margin: 0 0 10px; }
+.adj { margin-top: 2px; font-size: 14px; }
+.adj summary { cursor: pointer; color: inherit; opacity: .9; padding: 6px 0; text-align: center; }
+.adj .chips { justify-content: center; margin: 6px 0; }
+.adj .chip { min-height: 36px; padding: 6px 12px; font-size: 13.5px; }
+.adj .note { color: inherit; opacity: .85; text-align: center; }
+
+.hero .chip { background: transparent; color: inherit; border-color: currentColor; opacity: .9; }
+.hero .chip.on { background: var(--card); color: var(--deep); opacity: 1; }
+.pickstudy { width: 100%; margin: -2px 0 12px; }
+.pk-grp { font: inherit; font-size: 14px; width: 100%; min-width: 0; padding: 9px 8px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); min-height: 40px; }
+.pk-count-line { text-align: center; font-size: 13.5px; margin: 0 0 6px; background: var(--card); border-radius: 10px; padding: 6px; box-shadow: var(--card-shadow); }
+.pk-two { display: grid; grid-template-columns: 1fr 1.3fr; gap: 8px; }
+.pk-two .btn { white-space: nowrap; font-size: 15px; padding-left: 6px; padding-right: 6px; }
+
 /* 준비 끝 */
 .readycard { background: var(--pri); color: var(--pri-ink); border-radius: calc(var(--r-card) + 4px); padding: 22px; display: grid; gap: 12px; margin-bottom: 12px; }
 .readycard .big { font-family: var(--display); font-weight: var(--display-w); font-size: 38px; line-height: 1.1; letter-spacing: -0.03em; }

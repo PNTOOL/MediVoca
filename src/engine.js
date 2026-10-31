@@ -310,7 +310,7 @@ export function planToday(index, states, { now = Date.now(), retention = 0.9, pa
   const backlog = !goal && overdue > RULES.backlogAt;
   const newQuota = goal ? (goal.ended ? Math.min(newMax, Math.max(RULES.newMin, dailyCards - reviewsTotal)) : goal.perDay)
     : backlog ? 0 : Math.min(newMax, Math.max(RULES.newMin, dailyCards - reviewsTotal));
-  const newLeft = Math.max(0, newQuota - newToday) + extraNew;
+  const newLeft = Math.max(0, Math.max(0, newQuota - newToday) + extraNew);
   const fresh = pickNew(index, states, newLeft, { order: order || newOrder(index, scope), now });
   return {
     day: today,
@@ -321,6 +321,7 @@ export function planToday(index, states, { now = Date.now(), retention = 0.9, pa
     dueTotal: due.length,
     reviewedToday,
     newToday,
+    newQuota,
     goal,
     minutes: Math.max(1, Math.round((reviews.length * RULES.secReview + fresh.length * RULES.secNew) / 60)),
   };
