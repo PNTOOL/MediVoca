@@ -48,3 +48,10 @@ test('내 암기법은 더 나중에 고친 쪽을 쓴다', () => {
   assert.equal(r.changed, 2);
   assert.ok(!('bad' in r.notes));
 });
+
+import { mergeFlags } from '../src/backup.js';
+test('중요 표시 합치기: 나중에 바꾼 쪽', () => {
+  const r = mergeFlags({ 'w:a': { on: true, t: 5 }, 'w:b': { on: true, t: 1 } }, { 'w:a': { on: false, t: 3 }, 'w:b': { on: false, t: 9 }, 'w:c': { on: true, t: 2 }, bad: { on: 1, t: 1 } });
+  assert.deepEqual(r.flags, { 'w:a': { on: true, t: 5 }, 'w:b': { on: false, t: 9 }, 'w:c': { on: true, t: 2 } });
+  assert.equal(r.changed, 2);
+});

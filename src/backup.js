@@ -21,9 +21,10 @@ const slim = e => {
   return o;
 };
 
-export function makeBackup(log, { device, label, now = Date.now(), notes } = {}) {
+export function makeBackup(log, { device, label, now = Date.now(), notes, flags } = {}) {
   const o = { app: APP, v: VERSION, ts: now, device, label, log: log.map(slim) };
   if (notes && Object.keys(notes).length) o.notes = notes;
+  if (flags && Object.keys(flags).length) o.flags = flags;
   return o;
 }
 
@@ -67,4 +68,15 @@ export function mergeNotes(mine = {}, theirs = {}) {
     if (!out[id] || out[id].t < v.t) { out[id] = { s: v.s.slice(0, 2000), t: v.t }; changed++; }
   }
   return { notes: out, changed };
+}
+
+// '아주 중요' 표시 합치기: { id: { on, t } }. 끈 것도 남겨서 더 나중에 바꾼 쪽을 쓴다
+export function mergeFlags(mine = {}, theirs = {}) {
+  const out = { ...mine };
+  let changed = 0;
+  for (const [id, v] of Object.entries(theirs || {})) {
+    if (!v || typeof v !== 'object' || typeof v.on !== 'boolean' || !Number.isFinite(v.t) || id.length > 200) continue;
+    if (!out[id] || out[id].t < v.t) { out[id] = { on: v.on, t: v.t }; changed++; }
+  }
+  return { flags: out, changed };
 }

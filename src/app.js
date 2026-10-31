@@ -9,7 +9,7 @@ import {
 import { guideHTML } from './guide.js';
 import { THEMES, LOOKS, themeOf, applyLook } from './themes.js';
 import { QTYPES, buildQuiz, grade, summarize } from './quiz.js';
-import { makeBackup, backupName, parseBackup, mergeLogs, mergeNotes } from './backup.js';
+import { makeBackup, backupName, parseBackup, mergeLogs, mergeNotes, mergeFlags } from './backup.js';
 import { esc, rich, speakable, normEn, normKo } from './text.js';
 import * as store from './store.js';
 
@@ -32,6 +32,8 @@ const A = {
   states: new Map(),
   settings: { ...DEFAULTS },
   notes: {},           // 내 암기법 { id: { s, t } }
+  flags: {},           // 아주 중요 표시 { id: { on, t } } (백업에 들어감)
+  qmarks: {},          // 시험 결과 모음 { id: { w, u, ok, last, t } } (이 기기만)
   lastBackup: 0,
   sess: null,          // 지금 세션
   view: 'home',        // home | study | end | guide | pace | welcome | look | ready
@@ -58,6 +60,8 @@ async function boot() {
     await store.set('settings', A.settings);
   }
   A.notes = await store.get('notes', {});
+  A.flags = await store.get('flags', {});
+  A.qmarks = await store.get('qmarks', {});
   A.lastBackup = await store.get('lastBackup', 0);
   A.quizzes = await store.get('quizzes', []);
   const saved = await store.get('session', null);
@@ -270,7 +274,7 @@ function viewHome() {
   <section class="panel"><div class="row-between"><b>이번 주</b><span class="sub">${st ? `${st}일째 이어서 하는 중` : '오늘부터 시작해요'}</span></div><div class="week">${week}</div></section>
   <nav class="tabs">
     <button class="tab" data-act="quiz">시험 보기</button>
-    <button class="tab" data-act="marks">답별 단어</button>
+    <button class="tab" data-act="marks">단어 모음</button>
     <button class="tab" data-act="stats">현황</button>
     <button class="tab${A.sheet === 'settings' ? ' on' : ''}" data-act="sheet" data-arg="settings">설정</button>
   </nav>
@@ -470,6 +474,7 @@ function viewStudy() {
     <div class="face-tools">
       <button class="icon-btn" data-act="say" title="발음 듣기 (P)" aria-label="발음 듣기">${IC.sound}</button>
       ${A.phase === 'front' ? `<button class="icon-btn" data-act="hint" title="조각 힌트 (H)">${A.hint ? hint : '조각 힌트'}</button>` : ''}
+      <button class="icon-btn flagbtn${isFlag(x.id) ? ' on' : ''}" data-act="flag" data-arg="${esc(x.id)}" title="아주 중요 (F)">${isFlag(x.id) ? '★ 아주 중요' : '☆ 중요 체크'}</button>
     </div>
     ${A.phase === 'front' && isNew ? '<p class="note center">처음 보는 단어예요. 조각으로 뜻을 짐작해 보고 고르세요.</p>' : ''}
   </section>`;
@@ -568,7 +573,7 @@ function cardHTML(x) {
   return `<section class="face" style="min-height:0;padding:16px 18px">
       <div class="meta">${KIND[x.k]} · ${stars(x.star)} · ${esc(IX.unitOf.get(x.id).short)}</div>
       <div class="word" lang="en" style="font-size:32px">${esc(x.t)}</div>
-      <div class="face-tools"><button class="icon-btn" data-act="sayid" data-arg="${esc(x.id)}" aria-label="발음 듣기">${IC.sound}</button></div>
+      <div class="face-tools"><button class="icon-btn" data-act="sayid" data-arg="${esc(x.id)}" aria-label="발음 듣기">${IC.sound}</button><button class="icon-btn flagbtn${isFlag(x.id) ? ' on' : ''}" data-act="flag" data-arg="${esc(x.id)}" title="아주 중요 (F)">${isFlag(x.id) ? '★ 아주 중요' : '☆ 중요 체크'}</button></div>
     </section>
     <section class="answer explain">${answerBlock(x, true)}${explainBlock(x)}</section>`;
 }
@@ -947,6 +952,14 @@ async function finishQuiz() {
   const s = summarize(Q.qs, Q.answers);
   A.quizzes = [...(A.quizzes || []), { t: Q.ended, n: s.n, ok: s.ok, pct: s.pct, mode: Q.mode }].slice(-QUIZ_MAX_LOG);
   await store.set('quizzes', A.quizzes);
+  // 시험 결과를 단어별로 모은다(단어 모음의 "시험에서 틀림·헷갈렸어요")
+  Q.qs.forEach((q, i) => {
+    const a = Q.answers[i];
+    const m = A.qmarks[q.id] || (A.qmarks[q.id] = { w: 0, u: 0, ok: 0, last: '', t: 0 });
+    const r = !a || !a.ok ? 'w' : a.unsure ? 'u' : 'ok';
+    m[r]++; m.last = r; m.t = Q.ended;
+  });
+  await store.set('qmarks', A.qmarks);
   go('qres');
 }
 
@@ -1149,45 +1162,101 @@ document.addEventListener('toggle', e => {
   if (e.target.matches && e.target.matches('details.pk-unit') && A.pk) { const u = e.target.dataset.unit; if (e.target.open) A.pk.open.add(u); else A.pk.open.delete(u); }
 }, true);
 
-// ───────── 내가 누른 답별 단어 ─────────
+// ───────── 단어 모음: 여러 기준으로 단어를 모아 보기 ─────────
+// 내가 표시(아주 중요·내 단어) · 공부할 때 누른 답 · 시험 결과 · 끈질긴 단어
+const isFlag = id => !!(A.flags[id] && A.flags[id].on);
+const COLS = [
+  { k: 'flag', g: '내가 표시', name: '아주 중요', icon: '★' },
+  { k: 'my', g: '내가 표시', name: '내 단어' },
+  { k: 'b1', g: '공부할 때 누른 답', name: '모름', sub: '모름 + 확인에서 틀림', cls: 'b1' },
+  { k: 'b2', g: '공부할 때 누른 답', name: '헷갈림', cls: 'b2' },
+  { k: 'b3', g: '공부할 때 누른 답', name: '알 것 같음', cls: 'b3' },
+  { k: 'b4', g: '공부할 때 누른 답', name: '확실히 앎', cls: 'b4' },
+  { k: 'qw', g: '시험', name: '시험에서 틀림' },
+  { k: 'qu', g: '시험', name: '시험에서 헷갈렸어요', sub: '맞혔지만 헷갈렸어요를 누름' },
+  { k: 'sticky', g: '자동', name: '끈질긴 단어', sub: '7번 이상 틀린 단어' },
+];
+const fmtDay = t => { const d = new Date(t); return `${d.getMonth() + 1}/${d.getDate()}`; };
+// 모음 하나 → [{ id, t: 최근 시각, n: 정렬용 횟수, info }]
+function colItems(k, mode, marks) {
+  if (k === 'flag') return Object.entries(A.flags).filter(([, v]) => v.on).map(([id, v]) => ({ id, t: v.t, n: 0, info: `표시 ${fmtDay(v.t)}` }));
+  if (k === 'my') return (A.settings.myList || []).map((id, i) => ({ id, t: i, n: 0, info: '' }));
+  if (k[0] === 'b') {
+    const b = Number(k[1]);
+    return marksList(marks, b, mode).map(m => ({ id: m.id, t: m.lastT, n: m.n[b],
+      info: [1, 2, 3, 4].filter(z => m.n[z]).map(z => `${MARKS[z - 1].name} ${m.n[z]}`).join(' · ') + ` · 마지막 ${fmtDay(m.lastT)}` }));
+  }
+  if (k === 'qw' || k === 'qu') {
+    const f = k === 'qw' ? 'w' : 'u';
+    return Object.entries(A.qmarks).filter(([, v]) => (mode === 'ever' ? v[f] > 0 : v.last === f))
+      .map(([id, v]) => ({ id, t: v.t, n: v[f], info: `시험 틀림 ${v.w || 0} · 헷갈림 ${v.u || 0} · 맞힘 ${v.ok || 0} · 마지막 ${fmtDay(v.t)}` }));
+  }
+  if (k === 'sticky') return [...A.states.values()].filter(s => s.fails > 6).map(s => ({ id: s.id, t: s.lastT, n: s.fails, info: `틀림 ${s.fails}번` }));
+  return [];
+}
+function colFiltered(k, marks) {
+  const c = A.mk;
+  let xs = colItems(k, c.mode, marks).filter(z => IX.get(z.id));
+  if (c.unit) xs = xs.filter(z => IX.get(z.id).unit === c.unit);
+  if (c.kind) xs = xs.filter(z => IX.get(z.id).k === c.kind);
+  const by = { recent: (a, b) => b.t - a.t, many: (a, b) => b.n - a.n || b.t - a.t, abc: (a, b) => IX.get(a.id).t.localeCompare(IX.get(b.id).t) };
+  return xs.sort(by[c.sort] || by.recent);
+}
 function viewMarks() {
-  const k = A.mk || (A.mk = { b: 1, mode: 'last' });
+  const c = A.mk;
   const marks = answerMarks(A.log);
-  const lists = MARKS.map(m => marksList(marks, m.b, k.mode));
-  const list = lists[k.b - 1].filter(m => IX.get(m.id));
-  const cur = MARKS[k.b - 1];
-  const fmt = t => { const d = new Date(t); return `${d.getMonth() + 1}/${d.getDate()}`; };
-  const rows = list.map(m => {
-    const x = IX.get(m.id);
-    const cnt = [1, 2, 3, 4].filter(b => m.n[b]).map(b => `${MARKS[b - 1].name} ${m.n[b]}`).join(' · ');
-    return `<li><button class="mk-row" data-act="opencard" data-arg="${esc(x.id)}">
-      <b lang="en">${esc(x.t)}</b><span>${esc(x.ko.join(' · '))}</span><small>${cnt} · 마지막 ${fmt(m.lastT)}</small></button></li>`;
-  }).join('');
-  return `<header class="top"><h1>답별 단어</h1><button class="btn small" data-act="home">닫기</button></header>
-  <p class="note" style="margin:-4px 2px 12px">공부할 때 누른 버튼별로 단어를 모아 봐요. 단어를 누르면 카드가 열려요.</p>
-  <div class="mk-tabs">${MARKS.map((m, i) => `<button class="mk-tab b${m.b}${k.b === m.b ? ' on' : ''}" data-act="mkb" data-arg="${m.b}"><b>${lists[i].length}</b><span>${m.name}</span></button>`).join('')}</div>
-  <div class="seg" style="margin:10px 0">
-    <button class="${k.mode === 'last' ? 'on' : ''}" data-act="mkmode" data-arg="last"><b>마지막에 누른 답</b><small>지금 상태</small></button>
-    <button class="${k.mode === 'ever' ? 'on' : ''}" data-act="mkmode" data-arg="ever"><b>한 번이라도 누른 답</b><small>지금까지 전부</small></button>
-  </div>
-  ${list.length ? `<section class="panel">
-    <div class="row-between"><h2>${cur.name} ${list.length}개</h2>${cur.sub ? `<span class="sub">${cur.sub}</span>` : ''}</div>
-    <div class="mk-actions">
+  const cur = COLS.find(z => z.k === c.col) || COLS[0];
+  const counts = Object.fromEntries(COLS.map(z => [z.k, colFiltered(z.k, marks).length]));
+  const groups = [...new Set(COLS.map(z => z.g))];
+  const tiles = groups.map(g => `<div class="mk-g"><span>${g}</span><div class="mk-tiles">${COLS.filter(z => z.g === g).map(z =>
+    `<button class="mk-tab ${z.cls || 'plain'}${c.col === z.k ? ' on' : ''}" data-act="mkcol" data-arg="${z.k}"><b>${counts[z.k]}</b><span>${z.icon ? z.icon + ' ' : ''}${z.name}</span></button>`).join('')}</div></div>`).join('');
+  const list = colFiltered(cur.k, marks);
+  const hasMode = cur.k[0] === 'b' || cur.k === 'qw' || cur.k === 'qu';
+  const sel = (key, opts) => `<select data-mksel="${key}">${opts.map(([v, l]) => `<option value="${v}"${c[key] === v ? ' selected' : ''}>${l}</option>`).join('')}</select>`;
+  const rows = list.map(z => { const x = IX.get(z.id); const f = isFlag(x.id); return `<li>
+      <button class="mk-row" data-act="opencard" data-arg="${esc(x.id)}"><b lang="en">${esc(x.t)}</b><span>${esc(x.ko.join(' · '))}</span>${z.info ? `<small>${z.info}</small>` : ''}</button>
+      <button class="mk-flag${f ? ' on' : ''}" data-act="flag" data-arg="${esc(x.id)}" aria-label="아주 중요 ${f ? '빼기' : '표시'}">${f ? '★' : '☆'}</button></li>`; }).join('');
+  const empty = { flag: '단어 카드에서 ☆를 누르면 여기에 모여요.', my: '"내 단어 고르기"에서 단어를 골라 보세요.', qw: '시험에서 틀린 단어가 여기에 모여요.', qu: '시험에서 "헷갈렸어요"를 누른 단어가 여기에 모여요.' }[cur.k] || '아직 없어요.';
+  return `<header class="top"><h1>단어 모음</h1><button class="btn small" data-act="home">닫기</button></header>
+  <section class="mk-head">${tiles}</section>
+  <section class="panel">
+    <div class="row-between"><h2>${cur.icon ? cur.icon + ' ' : ''}${cur.name} ${list.length}개</h2>${cur.sub ? `<span class="sub">${cur.sub}</span>` : ''}</div>
+    ${hasMode ? `<div class="seg" style="margin:10px 0">
+      <button class="${c.mode === 'last' ? 'on' : ''}" data-act="mkmode" data-arg="last"><b>마지막 결과</b><small>지금 상태</small></button>
+      <button class="${c.mode === 'ever' ? 'on' : ''}" data-act="mkmode" data-arg="ever"><b>한 번이라도</b><small>지금까지 전부</small></button></div>` : ''}
+    <div class="mk-filters">
+      ${sel('unit', [['', '모든 계통'], ...IX.units.map(u => [u.id, `${u.n}. ${u.short}`])])}
+      ${sel('kind', [['', '모든 종류'], ['part', '조각'], ['word', '단어'], ['abbr', '약어']])}
+      ${sel('sort', [['recent', '최근 순'], ['many', '많이 누른 순'], ['abc', '알파벳 순']])}
+    </div>
+    ${list.length ? `<div class="mk-actions">
       <button class="btn primary" data-act="mkstudy">카드로 다시 공부</button>
       <button class="btn" data-act="mkquiz">이 단어로 시험</button>
-      <button class="btn" data-act="mkmy">내 단어에 넣기</button>
+      ${cur.k === 'my' ? '<button class="btn" data-act="pick" data-arg="marks">내 단어 고치기</button>' : '<button class="btn" data-act="mkmy">내 단어에 넣기</button>'}
     </div>
-    <ul class="mk-list">${rows}</ul></section>`
-  : `<section class="panel"><p class="note center" style="padding:16px">아직 ${cur.name}${k.mode === 'last' ? '(으)로 남은' : '을(를) 누른'} 단어가 없어요.</p></section>`}`;
+    <ul class="mk-list">${rows}</ul>`
+    : `<p class="note center" style="padding:16px">${empty}</p>${cur.k === 'my' ? '<button class="btn" style="width:100%" data-act="pick" data-arg="marks">내 단어 고르기</button>' : ''}`}
+  </section>`;
 }
-const mkIds = () => { const marks = answerMarks(A.log); return marksList(marks, A.mk.b, A.mk.mode).map(m => m.id).filter(id => IX.get(id)); };
+const mkIds = () => colFiltered(A.mk.col, answerMarks(A.log)).map(z => z.id);
+const mkName = () => (COLS.find(z => z.k === A.mk.col) || COLS[0]).name;
+async function setFlag(id, on) {
+  A.flags[id] = { on, t: Date.now() };
+  await store.set('flags', A.flags);
+}
 Object.assign(ACT, {
-  marks: () => { A.mk = A.mk || { b: 1, mode: 'last' }; go('marks'); },
-  mkb: b => { A.mk.b = Number(b); render(); },
+  marks: () => { A.mk = A.mk || { col: 'flag', mode: 'last', unit: '', kind: '', sort: 'recent' }; go('marks'); },
+  mkcol: k => { A.mk.col = k; render(); },
   mkmode: m => { A.mk.mode = m; render(); },
+  flag: async id => {
+    const on = !isFlag(id);
+    await setFlag(id, on);
+    render();
+    toast(on ? '★ 아주 중요 단어에 넣었어요' : '아주 중요 표시를 뺐어요');
+  },
   mkstudy: () => startSession({ day: dayKey(Date.now()), reviews: mkIds(), fresh: [] }, 'sticky'),
   mkquiz: () => {
-    A.qcfg = { ...(A.qcfg || { units: [], types: ['ko2en', 'pick', 'abbr', 'desc'], n: 20, mode: 'practice' }), range: 'ids', ids: mkIds(), idsLabel: MARKS[A.mk.b - 1].name };
+    A.qcfg = { ...(A.qcfg || { units: [], types: ['ko2en', 'pick', 'abbr', 'desc'], n: 20, mode: 'practice' }), range: 'ids', ids: mkIds(), idsLabel: mkName() };
     go('qset');
   },
   mkmy: async () => {
@@ -1198,11 +1267,15 @@ Object.assign(ACT, {
     toast(`내 단어에 ${set.size - before}개를 더했어요 (모두 ${set.size}개)`);
   },
 });
+document.addEventListener('change', e => {
+  const key = e.target.dataset && e.target.dataset.mksel;
+  if (key && A.mk) { A.mk[key] = e.target.value; render(); }
+});
 
 // ───────── 백업 ─────────
 async function sendBackup() {
   const now = Date.now();
-  const data = makeBackup(A.log, { device: A.settings.device, label: A.settings.label, now, notes: A.notes });
+  const data = makeBackup(A.log, { device: A.settings.device, label: A.settings.label, now, notes: A.notes, flags: A.flags });
   const name = backupName(A.settings.label, now);
   const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
   let file = null;
@@ -1233,6 +1306,8 @@ async function importText(text) {
   A.log = log;
   const nm = mergeNotes(A.notes, o.notes);
   if (nm.changed) { A.notes = nm.notes; await store.set('notes', A.notes); }
+  const fm = mergeFlags(A.flags, o.flags);
+  if (fm.changed) { A.flags = fm.flags; await store.set('flags', A.flags); }
   recompute();
   if (A.view === 'welcome') ACT.tolook(); else render();
   const from = o.label ? `(${o.label}에서 보냄) ` : '';
@@ -1292,6 +1367,7 @@ document.addEventListener('keydown', e => {
   const k = e.key.toLowerCase();
   const go = (act, arg) => { e.preventDefault(); ACT[act](arg); };
   if (k === 'p') return go('say');
+  if (k === 'f') { const c = shown(); if (c) return go('flag', c.c); }
   if (A.phase === 'front') {
     if (['1', '2', '3', '4'].includes(k)) return go('grade', k);
     if (k === 'h') return go('hint');

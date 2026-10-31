@@ -244,7 +244,18 @@ details.units .chip { min-height: 38px; }
 .pk-save small { font-weight: 400; opacity: 0.85; font-size: 12.5px; }
 
 /* 답별 단어 */
-.mk-tabs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.mk-head { display: grid; gap: 10px; margin-bottom: 12px; }
+.mk-g > span { display: block; font-size: 12.5px; font-weight: 600; color: var(--sub); margin: 0 2px 5px; }
+.mk-tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.mk-tab.plain { background: var(--card); border: 2px solid var(--line); }
+.mk-tab.plain.on { border-color: var(--ink); }
+.mk-filters { display: grid; grid-template-columns: 1.3fr 1fr 1fr; gap: 6px; margin: 8px 0; }
+.mk-filters select { min-width: 0; width: 100%; font: inherit; font-size: 13.5px; padding: 9px 6px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); min-height: 42px; }
+.mk-list li { display: flex; align-items: stretch; border-top: 1px solid var(--line); }
+.mk-list li .mk-row { border-top: 0; flex: 1; }
+.mk-flag { border: 0; background: none; font-size: 22px; width: 48px; color: var(--sub); cursor: pointer; }
+.mk-flag.on { color: #e0a100; }
+.flagbtn.on { background: #fff4cc; color: #8a6200; border-color: #f0d27a; font-weight: 600; }
 .mk-tab { display: grid; gap: 2px; padding: 10px 4px; border-radius: 14px; border: 2px solid transparent; font: inherit; cursor: pointer; color: var(--ink); }
 .mk-tab b { font-size: 22px; }
 .mk-tab span { font-size: 12.5px; }
