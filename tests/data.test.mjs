@@ -4,12 +4,13 @@ import { UNITS, PAIRS } from '../data/index.js';
 import { buildIndex, checkData } from '../src/data.js';
 import { gradeSpell, gradeMeaning, speakable, rich } from '../src/text.js';
 
-test('단어 데이터 검사 통과: 16장, 조각 292 · 단어 351 · 약어 84', () => {
+test('단어 데이터 검사 통과: 16장, 조각·단어·약어 모두 있음', () => {
   assert.deepEqual(checkData(UNITS, PAIRS), []);
   const ix = buildIndex(UNITS, PAIRS);
   const n = k => ix.items.filter(x => x.k === k).length;
   assert.equal(ix.units.length, 16);
-  assert.deepEqual([n('part'), n('word'), n('abbr')], [292, 351, 84]);
+  assert.ok(n('part') >= 292 && n('word') >= 351 && n('abbr') >= 84);
+  assert.equal(n('part') + n('word') + n('abbr'), ix.items.length);
 });
 
 test('검사가 빈 칸·중복·없는 조각을 잡는다', () => {

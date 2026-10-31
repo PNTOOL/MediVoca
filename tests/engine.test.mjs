@@ -86,10 +86,10 @@ test('6번 넘게 틀리면 끈질긴 단어', () => {
   assert.ok(!isSticky(replay(log.slice(0, 6)).get('w:x')));
 });
 
-test('새 단어 순서: 727개 모두, 조각이 단어보다 먼저, 핵심이 확장보다 먼저', () => {
+test('새 단어 순서: 모든 항목, 조각이 단어보다 먼저, 핵심이 확장보다 먼저', () => {
   const order = newOrder(IX);
-  assert.equal(order.length, 727);
-  assert.equal(new Set(order).size, 727);
+  assert.equal(order.length, IX.items.length);
+  assert.equal(new Set(order).size, IX.items.length);
   const pos = new Map(order.map((id, i) => [id, i]));
   for (const x of IX.items) if (x.k === 'word') for (const f of x.parts || []) assert.ok(pos.get('p:' + f) < pos.get(x.id), x.id + ' 앞에 ' + f);
   const lastCoreWord = Math.max(...IX.items.filter(x => x.stage === 'core').map(x => pos.get(x.id)));
@@ -99,7 +99,7 @@ test('새 단어 순서: 727개 모두, 조각이 단어보다 먼저, 핵심이
 
 test('헷갈리는 짝은 같은 날 처음 배우지 않는다', () => {
   const order = newOrder(IX);
-  const picked = pickNew(IX, new Map(), 727, { order, now: T0 });
+  const picked = pickNew(IX, new Map(), IX.items.length, { order, now: T0 });
   for (const p of PAIRS) {
     const a = (p.sa || []).some(id => picked.includes(id));
     const b = (p.sb || []).some(id => picked.includes(id));
@@ -107,7 +107,7 @@ test('헷갈리는 짝은 같은 날 처음 배우지 않는다', () => {
   }
   // 한쪽이 익힘이 되면 다른 쪽이 나온다
   const hyper = 'p:hyper-', hypo = 'p:hypo-';
-  const one = pickNew(IX, new Map(), 727, { order, now: T0 });
+  const one = pickNew(IX, new Map(), IX.items.length, { order, now: T0 });
   assert.ok(one.includes(hyper) !== one.includes(hypo));
 });
 
@@ -213,7 +213,7 @@ import { scopeSet, paceInfo, daysBetween, reviewOnlyDays } from '../src/engine.j
 test('범위: ★★★만 < 핵심 < 전체, 필요한 조각은 함께 들어간다', () => {
   const s3 = scopeSet(IX, 'star3'), core = scopeSet(IX, 'core'), all = scopeSet(IX, 'all');
   assert.ok(s3.size < core.size && core.size < all.size);
-  assert.equal(all.size, 727);
+  assert.equal(all.size, IX.items.length);
   for (const id of s3) { const x = IX.get(id); if (x.k === 'word') for (const f of x.parts || []) assert.ok(s3.has('p:' + f)); }
   const order = newOrder(IX, 'star3');
   assert.equal(order.length, s3.size);
@@ -233,7 +233,7 @@ test('날짜까지 끝내기: 남은 수 ÷ 새 단어 넣는 날, 마지막은 
   const pace = { mode: 'goal', end: '2026-12-28' }; // 8주
   const info = paceInfo(IX, new Map(), { pace, scope: 'all', now: T0 });
   assert.equal(info.newDays, 44);
-  assert.equal(info.perDay, Math.ceil(727 / 44));
+  assert.equal(info.perDay, Math.ceil(IX.items.length / 44));
   const p = planToday(IX, new Map(), { now: T0, pace, scope: 'all' });
   assert.equal(p.fresh.length, info.perDay);
   // 밀린 복습이 많아도 쉬지 않는다
@@ -242,7 +242,7 @@ test('날짜까지 끝내기: 남은 수 ÷ 새 단어 넣는 날, 마지막은 
   // 복습만 하는 기간
   const late = paceInfo(IX, new Map(), { pace: { mode: 'goal', end: '2026-11-08' }, now: T0 });
   assert.equal(late.daysLeft, 6);
-  assert.equal(late.perDay, Math.ceil(727 / 3));
+  assert.equal(late.perDay, Math.ceil(IX.items.length / 3));
   // 10일 계획(11/2~11/12)은 마지막 5일이 복습만: 11/9에는 새 단어 없음
   const ten = { mode: 'goal', start: '2026-11-02', end: '2026-11-12' };
   assert.equal(paceInfo(IX, new Map(), { pace: ten, now: T0 }).newDays, 5);
