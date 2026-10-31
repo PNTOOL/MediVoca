@@ -1,5 +1,5 @@
 // 메디보카 화면: 홈 → 학습(앞면 → 확인 또는 설명) → 끝. 백업 보내기·불러오기, 설정.
-import { UNITS, PAIRS } from '../data/index.js';
+import { UNITS, PAIRS, CONFUSIONS } from '../data/index.js';
 import { buildIndex } from './data.js';
 import {
   RULES, replay, planToday, newOrder, newSession, current, answer, isDone,
@@ -10,10 +10,10 @@ import { guideHTML } from './guide.js';
 import { THEMES, LOOKS, themeOf, applyLook } from './themes.js';
 import { QTYPES, buildQuiz, grade, summarize } from './quiz.js';
 import { makeBackup, backupName, parseBackup, mergeLogs, mergeNotes } from './backup.js';
-import { esc, rich, speakable } from './text.js';
+import { esc, rich, speakable, normEn, normKo } from './text.js';
 import * as store from './store.js';
 
-const IX = buildIndex(UNITS, PAIRS);
+const IX = buildIndex(UNITS, PAIRS, CONFUSIONS);
 const ORDERS = {};
 const orderFor = scope => ORDERS[scope] || (ORDERS[scope] = newOrder(IX, scope));
 const $app = document.getElementById('app');
@@ -25,6 +25,7 @@ const DEFAULTS = {
   seenGuide: false,                              // 첫 시작(환영 → 색 → 계획 → 준비)을 마쳤는지
   theme: 'burgundy',                             // 색: burgundy | glacier | lavender | sage | sunset
   look: 'basic',                                 // 모양: basic 기본 | soft 부드러움
+  myList: [],                                    // 내 단어 (직접 고른 id)
 };
 const A = {
   log: [],
@@ -62,6 +63,7 @@ async function boot() {
   const saved = await store.get('session', null);
   if (saved && saved.day === dayKey(Date.now()) && !isDone(saved)) A.sess = saved;
   applyLook(A.settings.theme, A.settings.look);
+  IX.myList = A.settings.myList || [];
   recompute();
   if (!A.settings.seenGuide && !A.log.length) { A.first = true; A.view = 'welcome'; }
   render();
@@ -81,7 +83,7 @@ const saveSettings = () => store.set('settings', A.settings);
 
 // ───────── 그리기 ─────────
 function render() {
-  const V = { study: viewStudy, end: viewEnd, guide: () => guideHTML(false), pace: viewPace, welcome: viewWelcome, look: viewLook, ready: viewReady, stats: viewStats, qset: viewQuizSet, qrun: viewQuizRun, qres: viewQuizResult };
+  const V = { study: viewStudy, end: viewEnd, guide: () => guideHTML(false), pace: viewPace, welcome: viewWelcome, look: viewLook, ready: viewReady, stats: viewStats, qset: viewQuizSet, qrun: viewQuizRun, qres: viewQuizResult, card: viewCard, pickw: viewPick };
   const v = (V[A.view] || viewHome)();
   $app.innerHTML = v;
   $app.dataset.view = A.view;
@@ -278,9 +280,10 @@ function viewHome() {
 // 공부 계획 화면: 무엇을(범위) · 얼마나 빨리(하루 장수 또는 날짜)
 function viewPace() {
   const d = A.draft;
+  const isMy = d.scope === 'my';
   const today = dayKey(Date.now());
-  const stars = new Set([...normScope(d.scope).split('|')[0]].map(Number));
-  const units = scopeUnits(d.scope);
+  const stars = new Set(isMy ? [] : [...normScope(d.scope).split('|')[0]].map(Number));
+  const units = isMy ? null : scopeUnits(d.scope);
   const STAR = [[3, '자주 나옴', '국시·시험에 자주, 매일 쓰는 말'], [2, '중요', '수업에서 꼭 배우는 말'], [1, '확장', '알아 두면 좋은 말']];
   const starOpts = STAR.map(([n, name, desc]) => {
     const cnt = IX.items.filter(x => x.star === n && (!units || units.has(x.unit))).length;
@@ -332,9 +335,15 @@ function viewPace() {
     <p class="sub" style="margin-top:2px">조각 → 인체 → 계통별(근골격 → 심혈관 → … → 피부) → 약어</p>
     <p class="note" style="margin-top:4px">의학용어 수업에서 가장 흔한 순서예요. 교재 순서로 바꾸는 기능은 곧 더해요.</p></section>
   <section class="panel"><div class="row-between"><h2>① 무엇을 외울까요?</h2><span class="sub">${sel.total}개${sel.remaining < sel.total ? ` · 남은 ${sel.remaining}` : ''}</span></div>
-    <p class="note">중요도를 고르고, 필요하면 단원을 골라요. 여러 개 고를 수 있어요.</p>
+    <div class="seg" style="margin:8px 0 10px">
+      <button class="${isMy ? '' : 'on'}" data-act="dscopemode" data-arg="rec"><b>추천 범위</b><small>중요도·단원으로</small></button>
+      <button class="${isMy ? 'on' : ''}" data-act="dscopemode" data-arg="my"><b>내 단어</b><small>직접 고르기 · ${(A.settings.myList || []).length}개</small></button>
+    </div>
+    ${isMy ? `<p class="note">내가 고른 단어만 공부해요. 단어에 필요한 조각은 함께 들어가요.</p>
+      <button class="btn" style="width:100%;margin-top:8px" data-act="pick" data-arg="pace">${(A.settings.myList || []).length ? '내 단어 고치기' : '단어 고르기'}</button>`
+    : `<p class="note">중요도를 고르고, 필요하면 단원을 골라요. 여러 개 고를 수 있어요.</p>
     <div class="opts">${starOpts}</div>
-    <details class="units"${units ? ' open' : ''}><summary>단원 고르기${units ? ` (${units.size}개)` : ' (전체)'}</summary><div class="chips" style="margin-top:10px">${unitChips}</div></details>
+    <details class="units"${units ? ' open' : ''}><summary>단원 고르기${units ? ` (${units.size}개)` : ' (전체)'}</summary><div class="chips" style="margin-top:10px">${unitChips}</div></details>`}
   </section>
   <section class="panel"><h2>② 며칠 안에 끝낼까요?</h2>
     <p class="note">고른 ${sel.remaining}개를 언제까지 다 외울지 정하면 하루 양을 계산해요.</p>
@@ -533,6 +542,8 @@ function explainBlock(x) {
   } else if (x.k === 'part' && (IX.family.get(x.id) || []).length) {
     out.push(`<div class="blk"><h3>같은 조각 단어</h3><p class="sub">이 조각으로 만든 단어 ${IX.family.get(x.id).length}개를 곧 배워요.</p></div>`);
   }
+  // 헷갈리는 묶음 (한국어·영어가 비슷한 것끼리)
+  out.push(groupBlock(x));
   // 헷갈리는 짝
   for (const p of IX.pairsOf.get(x.id) || []) {
     out.push(`<div class="blk pair"><h3>헷갈리는 짝 · ${esc(p.t)}</h3><p>${rich(p.a)}</p><p>${rich(p.b)}</p></div>`);
@@ -543,6 +554,29 @@ function explainBlock(x) {
     out.push(`<div class="blk en" lang="en"><h3>RN 영어</h3><p><b>${esc(x.def)}</b></p>${lay ? `<p>${lay}</p>` : ''}${x.rn ? `<p lang="ko" class="sub">RN 팁: ${rich(x.rn)}</p>` : ''}</div>`);
   }
   return out.join('');
+}
+
+function groupBlock(x) {
+  return (IX.groupsOf.get(x.id) || []).map(g => `<div class="blk group"><h3>헷갈리는 묶음 · ${esc(g.t)}</h3>
+    <ul class="gtable">${g.ids.map(id => { const y = IX.get(id); return `<li class="${id === x.id ? 'me' : ''}"><b lang="en">${esc(y.t)}</b><span>${esc(y.ko.join(' · '))}</span></li>`; }).join('')}</ul>
+    ${g.tip ? `<p class="note">${esc(g.tip)}</p>` : ''}</div>`).join('');
+}
+
+// 단어 카드 (시험 중·결과에서 열어 보기)
+function cardHTML(x) {
+  return `<section class="face" style="min-height:0;padding:16px 18px">
+      <div class="meta">${KIND[x.k]} · ${stars(x.star)} · ${esc(IX.unitOf.get(x.id).short)}</div>
+      <div class="word" lang="en" style="font-size:32px">${esc(x.t)}</div>
+      <div class="face-tools"><button class="icon-btn" data-act="sayid" data-arg="${esc(x.id)}" aria-label="발음 듣기">${IC.sound}</button></div>
+    </section>
+    <section class="answer explain">${answerBlock(x, true)}${explainBlock(x)}</section>`;
+}
+function viewCard() {
+  const x = IX.get(A.cardId);
+  return `<header class="top"><h1>단어 카드</h1><button class="btn small" data-act="cardclose">닫기</button></header>
+  <div class="study explain">${cardHTML(x)}</div>
+  <div class="bottom-cta"><button class="btn" data-act="cardreview"${A.cardQueued && A.cardQueued.has(x.id) ? ' disabled' : ''}>${A.cardQueued && A.cardQueued.has(x.id) ? '복습에 넣었어요' : '이 단어 내일 복습에 넣기'}</button>
+  <button class="btn primary big" data-act="cardclose">돌아가기</button></div>`;
 }
 
 // ───────── 끝 화면 ─────────
@@ -712,6 +746,11 @@ const ACT = {
     A.draft.scope = makeScope([...on], units ? [...units] : null);
     render();
   },
+  dscopemode: m => {
+    if (m === 'my') { A.draft.prevScope = A.draft.scope === 'my' ? A.draft.prevScope : A.draft.scope; if (!(A.settings.myList || []).length) { A.draft.scope = 'my'; ACT.pick('pace'); return; } A.draft.scope = 'my'; }
+    else A.draft.scope = A.draft.prevScope && A.draft.prevScope !== 'my' ? A.draft.prevScope : '321';
+    render();
+  },
   dstaronly: () => { const units = scopeUnits(A.draft.scope); A.draft.scope = makeScope([3], units ? [...units] : null); render(); },
   dunit: id => {
     const stars = [...normScope(A.draft.scope).split('|')[0]].map(Number);
@@ -766,6 +805,7 @@ const quizPool = cfg => {
   if (cfg.range === 'learned') return IX.items.filter(x => A.states.has(x.id));
   if (cfg.range === 'wrong') return IX.items.filter(x => { const s = A.states.get(x.id); return s && s.fails >= 2; });
   if (cfg.range === 'units') return IX.items.filter(x => cfg.units.includes(x.unit));
+  if (cfg.range === 'my') { const set = new Set(A.settings.myList || []); return IX.items.filter(x => set.has(x.id)); }
   const set = scopeSet(IX, A.settings.scope);
   return IX.items.filter(x => set.has(x.id));
 };
@@ -778,16 +818,18 @@ function viewQuizSet() {
     ['plan', '공부 계획 범위', scopeLabel(A.settings.scope)],
     ['wrong', '자주 틀린 단어', '두 번 이상 틀린 단어'],
     ['units', '단원 고르기', '시험 범위 단원만'],
+    ['my', '내 단어', '직접 고른 단어'],
   ];
   const rangeOpts = ranges.map(([k, t, d]) => `<button class="opt${c.range === k ? ' on' : ''}" data-act="qrange" data-arg="${k}" aria-pressed="${c.range === k}">
     <span class="dot"></span><span class="grow"><b>${t}${k !== 'units' ? ` · ${cnt(k)}개` : ''}</b><small>${esc(d)}</small></span></button>`).join('');
+  const myBtn = c.range === 'my' ? `<button class="btn" style="width:100%;margin-top:10px" data-act="pick" data-arg="qset">${(A.settings.myList || []).length ? '내 단어 고치기' : '단어 고르기'}</button>` : '';
   const unitChips = c.range === 'units' ? `<div class="chips" style="margin-top:10px">${IX.units.map(u => `<button class="chip${c.units.includes(u.id) ? ' on' : ''}" data-act="qunit" data-arg="${u.id}">${u.n}. ${esc(u.short)}</button>`).join('')}</div>` : '';
   const typeOpts = Object.entries(QTYPES).map(([k, t]) => `<button class="opt check${c.types.includes(k) ? ' on' : ''}" data-act="qtype" data-arg="${k}" aria-pressed="${c.types.includes(k)}">
     <span class="dot box"></span><span class="grow"><b>${t.label}</b><small>${t.desc}${t.subj ? ' · 주관식' : ''}</small></span></button>`).join('');
   const pool = quizPool(c).length;
   const recent = (A.quizzes || []).slice(-5).reverse();
   return `<header class="top"><h1>시험 보기</h1><button class="btn small" data-act="home">닫기</button></header>
-  <section class="panel"><h2>범위</h2><div class="opts">${rangeOpts}</div>${unitChips}</section>
+  <section class="panel"><h2>범위</h2><div class="opts">${rangeOpts}</div>${unitChips}${myBtn}</section>
   <section class="panel"><h2>문제 유형</h2><p class="note">학교 단답식(뜻·철자·약어)과 객관식, 국시처럼 설명을 읽고 고르는 문제예요.</p><div class="opts">${typeOpts}</div></section>
   <section class="panel"><h2>문항 수</h2><div class="chips">${[10, 20, 35, 50].map(n => `<button class="chip${c.n === n ? ' on' : ''}" data-act="qn" data-arg="${n}">${n}문항</button>`).join('')}</div>
     <h2 style="margin-top:14px">방식</h2>
@@ -814,7 +856,7 @@ function viewQuizRun() {
     body = `<div class="qopts">${q.options.map((o, i) => {
       let cls = '';
       if (fb) cls = o === q.answer ? ' right' : o === fb.given ? ' wrong' : ' dim';
-      return `<button class="qopt${cls}" data-act="qpick" data-arg="${i}"${fb ? ' disabled' : ''}><span class="no">${circled(i)}</span><span lang="${q.type === 'desc' ? 'en' : 'ko'}">${esc(o)}</span></button>`;
+      return `<button class="qopt${cls}" data-act="qpick" data-arg="${i}"${fb ? ' disabled' : ''}><span class="no">${circled(i)}</span><span lang="${q.type === 'desc' || q.type === 'ko2en' ? 'en' : 'ko'}">${esc(o)}</span></button>`;
     }).join('')}</div>`;
   } else {
     const en = q.type !== 'mean';
@@ -825,14 +867,15 @@ function viewQuizRun() {
   }
   let fbBox = '';
   if (fb) {
-    const parts = x.k === 'word' && (x.parts || []).length ? IX.partsOf(x).map(p => `${esc(p.t)} ${esc((p.ko || [])[0] || '')}`).join(' + ') : '';
-    fbBox = `<section class="qfb ${fb.ok ? 'ok' : 'no'}">
-      <b class="verdict">${fb.ok ? '정답이에요' : fb.empty ? '모르고 넘어갔어요' : fb.near ? '아까워요, 한두 글자 차이예요' : '틀렸어요'}</b>
-      <p><span class="sub">정답</span> <b>${esc(q.answer)}</b>${q.alt && q.alt.length ? ` <span class="sub">(${esc(q.alt.join(', '))}도 정답)</span>` : ''}</p>
-      <p lang="en"><b>${esc(x.t)}</b> = ${esc(x.ko.join(' · '))}${x.full ? ` (${esc(x.full)})` : ''}</p>
-      ${parts ? `<p class="sub">${parts}</p>` : ''}
-      ${x.mean ? `<p class="sub">${esc(x.mean)}</p>` : ''}
-    </section>`;
+    const traps = (q.traps || []).filter(o => o !== q.answer);
+    const showCard = !fb.ok || fb.unsure || Q.showCard;
+    fbBox = `<section class="qfb ${fb.ok && !fb.unsure ? 'ok' : 'no'}">
+      <b class="verdict">${fb.ok ? (fb.unsure ? '맞혔지만 헷갈렸어요 → 다시 볼 단어에 넣었어요' : '정답이에요') : fb.empty ? '모르고 넘어갔어요' : fb.near ? '아까워요, 한두 글자 차이예요' : '틀렸어요'}</b>
+      <p><span class="sub">정답</span> <b lang="en">${esc(q.answer)}</b>${q.alt && q.alt.length ? ` <span class="sub">(${esc(q.alt.join(', '))}도 정답)</span>` : ''}</p>
+      ${traps.length ? `<p class="sub">철자 함정: <span lang="en">${traps.map(esc).join(', ')}</span></p>` : ''}
+      ${fb.ok && !fb.unsure ? `<div class="qfb-btns"><button class="btn small" data-act="qunsure">헷갈렸어요</button><button class="btn small" data-act="qcard">${Q.showCard ? '카드 접기' : '단어 카드 보기'}</button></div>` : ''}
+    </section>
+    ${showCard ? `<div class="study explain qcardbox">${cardHTML(x)}</div>` : ''}`;
   }
   const pct = Math.round((Q.i / Q.qs.length) * 100);
   return `<div class="studybar"><div class="progress"><i style="width:${pct}%"></i></div>
@@ -857,19 +900,20 @@ function fmtLeft() {
 function viewQuizResult() {
   const Q = A.q;
   const s = summarize(Q.qs, Q.answers);
-  const wrong = Q.qs.map((q, i) => ({ q, a: Q.answers[i] })).filter(o => !(o.a && o.a.ok));
+  const wrong = Q.qs.map((q, i) => ({ q, a: Q.answers[i] })).filter(o => !(o.a && o.a.ok) || (o.a && o.a.unsure));
   const row = (label, v) => `<div class="row-stat"><div class="row-between"><span>${label}</span><span class="sub">${v.ok} / ${v.n}</span></div><div class="bar"><i class="s-long" style="width:${Math.round((v.ok / v.n) * 100)}%"></i></div></div>`;
   const mins = Math.max(1, Math.round((Q.ended - Q.started) / 60000));
   return `<header class="top"><h1>시험 결과</h1></header>
   <section class="panel qscore"><b>${s.pct}<small>점</small></b><span>${s.ok} / ${s.n} 맞힘 · ${mins}분 · ${Q.mode === 'exam' ? '실전' : '연습'}${Q.timeout ? ' · 시간 종료' : ''}</span></section>
   <section class="panel"><h2>유형별</h2>${[...s.byType].map(([k, v]) => row(QTYPES[k].label, v)).join('')}</section>
   <section class="panel"><h2>단원별</h2>${[...s.byUnit].map(([k, v]) => row(esc(IX.units.find(u => u.id === k).short), v)).join('')}</section>
-  ${wrong.length ? `<section class="panel"><h2>틀린 문제 ${wrong.length}개</h2><ul class="qwrong">${wrong.map(({ q, a }) => {
+  ${wrong.length ? `<section class="panel"><h2>다시 볼 단어 ${wrong.length}개</h2><p class="note">틀렸거나 헷갈린 단어예요. 누르면 단어 카드가 열려요.</p><ul class="qwrong">${wrong.map(({ q, a }) => {
     const x = IX.get(q.id);
-    return `<li><b lang="en">${esc(x.t)}</b> <span>${esc(x.ko.join(' · '))}</span><small>${esc(QTYPES[q.type].label)} · 내 답: ${a && a.given ? esc(a.given) : '(없음)'} → 정답: ${esc(q.answer)}</small></li>`;
+    return `<li><button class="qw" data-act="opencard" data-arg="${esc(x.id)}"><b lang="en">${esc(x.t)}</b> <span>${esc(x.ko.join(' · '))}</span><small>${a && a.ok ? '헷갈림' : '틀림'} · ${esc(QTYPES[q.type].label)} · 내 답: ${a && a.given ? esc(a.given) : '(없음)'} → 정답: ${esc(q.answer)}</small></button></li>`;
   }).join('')}</ul></section>` : '<section class="panel"><p class="big-line">모두 맞혔어요!</p></section>'}
+  <section class="panel"><h2>모든 문제</h2><div class="chips">${Q.qs.map((q, i) => { const a = Q.answers[i]; const x = IX.get(q.id); return `<button class="chip ${a && a.ok && !a.unsure ? '' : 'bad'}" data-act="opencard" data-arg="${esc(x.id)}" lang="en">${esc(x.t)}</button>`; }).join('')}</div></section>
   <div class="bottom-cta">
-    ${wrong.length ? `<button class="btn primary big" data-act="qtoreview"${Q.reviewed ? ' disabled' : ''}>${Q.reviewed ? '복습에 넣었어요' : `틀린 ${wrong.length}개 내일 복습에 넣기`}</button>
+    ${wrong.length ? `<button class="btn primary big" data-act="qtoreview"${Q.reviewed ? ' disabled' : ''}>${Q.reviewed ? '복습에 넣었어요' : `다시 볼 ${wrong.length}개 내일 복습에 넣기`}</button>
     <button class="btn" data-act="qretry">틀린 문제만 다시 풀기</button>` : ''}
     <button class="btn ghost" data-act="home">끝내기</button>
   </div>`;
@@ -909,6 +953,7 @@ function answerQuiz(given) {
   const res = grade(qCur(), given);
   Q.answers[Q.i] = { given, ...res };
   Q.hint = false;
+  Q.showCard = false;
   if (Q.mode === 'exam') { nextQuestion(); return; }
   Q.phase = 'fb';
   render();
@@ -923,7 +968,7 @@ function nextQuestion() {
 
 Object.assign(ACT, {
   quiz: () => {
-    A.qcfg = A.qcfg || { range: A.states.size >= 10 ? 'learned' : 'plan', units: [], types: Object.keys(QTYPES), n: 20, mode: 'practice' };
+    A.qcfg = A.qcfg || { range: A.states.size >= 10 ? 'learned' : 'plan', units: [], types: ['ko2en', 'pick', 'abbr', 'desc'], n: 20, mode: 'practice' };
     go('qset');
   },
   qrange: k => { A.qcfg.range = k; render(); },
@@ -935,12 +980,24 @@ Object.assign(ACT, {
   qpick: i => answerQuiz(qCur().options[Number(i)]),
   qhint: () => { A.q.hint = true; render(); },
   qnext: () => nextQuestion(),
+  qunsure: () => { const a = A.q.answers[A.q.i]; if (a) a.unsure = true; render(); },
+  qcard: () => { A.q.showCard = !A.q.showCard; render(); },
+  opencard: id => { A.cardId = id; A.cardBack = A.view; go('card'); },
+  cardclose: () => go(A.cardBack || 'home'),
+  sayid: id => { const x = IX.get(id); if (x) sayEn(x.t); },
+  cardreview: async () => {
+    const id = A.cardId;
+    const e = { t: Date.now(), c: id, b: 1, d: A.settings.device };
+    A.log.push(e); await store.addLog([e]); recompute();
+    (A.cardQueued = A.cardQueued || new Set()).add(id);
+    render(); toast('내일 복습에 넣었어요');
+  },
   qquit: () => { clearInterval(qTimer); A.q = null; go('home'); toast('시험을 그만뒀어요'); },
   qtoreview: async () => {
     const Q = A.q;
     if (Q.reviewed) return;
     const now = Date.now();
-    const ids = [...new Set(Q.qs.filter((q, i) => !(Q.answers[i] && Q.answers[i].ok)).map(q => q.id))];
+    const ids = [...new Set(Q.qs.filter((q, i) => !(Q.answers[i] && Q.answers[i].ok) || Q.answers[i].unsure).map(q => q.id))];
     const entries = ids.map((c, i) => ({ t: now + i, c, b: 1, d: A.settings.device }));
     A.log.push(...entries);
     await store.addLog(entries);
@@ -951,7 +1008,7 @@ Object.assign(ACT, {
   },
   qretry: () => {
     const Q = A.q;
-    const ids = new Set(Q.qs.filter((q, i) => !(Q.answers[i] && Q.answers[i].ok)).map(q => q.id));
+    const ids = new Set(Q.qs.filter((q, i) => !(Q.answers[i] && Q.answers[i].ok) || Q.answers[i].unsure).map(q => q.id));
     startQuiz(IX.items.filter(x => ids.has(x.id)), { ...Q.cfg, n: ids.size });
   },
 });
@@ -967,6 +1024,127 @@ document.addEventListener('keydown', e => {
   if (A.q.phase === 'fb' && (k === 'Enter' || k === ' ')) { e.preventDefault(); nextQuestion(); return; }
   if (A.q.phase === 'ask' && qCur().options && /^[1-5]$/.test(k) && !e.target.closest('input')) { e.preventDefault(); ACT.qpick(Number(k) - 1); }
 });
+
+// ───────── 내 단어 고르기 ─────────
+// 종류·중요도·상태·계통으로 걸러서 묶음째 고르고, 하나씩도 고친다. 목록 붙여넣기로 한 번에 찾기.
+const PK_KIND = { '': '전체', part: '조각', word: '단어', abbr: '약어' };
+const PK_STATUS = { '': '전체', new: '새 단어', learning: '배우는 중', wrong: '틀린 적 있음' };
+function pkFiltered() {
+  const k = A.pk;
+  const q = k.q.trim().toLowerCase();
+  return IX.items.filter(x => {
+    if (k.kind && x.k !== k.kind) return false;
+    if (k.star && x.star !== Number(k.star)) return false;
+    if (k.unit && x.unit !== k.unit) return false;
+    if (k.status) {
+      const s = A.states.get(x.id);
+      if (k.status === 'new' && s) return false;
+      if (k.status === 'learning' && !(s && s.goodDays.size < 3)) return false;
+      if (k.status === 'wrong' && !(s && s.fails > 0)) return false;
+    }
+    if (q && !(x.t.toLowerCase().includes(q) || x.ko.some(z => z.includes(q)) || (x.full || '').toLowerCase().includes(q))) return false;
+    return true;
+  });
+}
+function pkCountText() {
+  const sel = A.pk.sel;
+  const c = { part: 0, word: 0, abbr: 0 };
+  for (const id of sel) { const x = IX.get(id); if (x) c[x.k]++; }
+  return `선택 ${sel.size}개 <small>(조각 ${c.part} · 단어 ${c.word} · 약어 ${c.abbr})</small>`;
+}
+function pkListHTML() {
+  const list = pkFiltered();
+  const filtering = A.pk.q || A.pk.kind || A.pk.star || A.pk.status || A.pk.unit;
+  const byUnit = new Map();
+  for (const x of list) { if (!byUnit.has(x.unit)) byUnit.set(x.unit, []); byUnit.get(x.unit).push(x); }
+  if (!list.length) return `<p class="note center" style="padding:20px">찾는 단어가 없어요.${A.pk.kind || A.pk.star || A.pk.status || A.pk.unit ? ' 위의 거르기를 \'전체\'로 바꿔 보세요.' : ''}</p>`;
+  return `<div class="row-between pk-bulk"><span class="sub">보이는 단어 ${list.length}개</span>
+      <span><button class="link" data-act="pkall" data-arg="1">모두 선택</button> · <button class="link" data-act="pkall" data-arg="0">모두 해제</button></span></div>` +
+    [...byUnit].map(([uid, xs]) => {
+      const u = IX.units.find(z => z.id === uid);
+      const on = xs.filter(x => A.pk.sel.has(x.id)).length;
+      return `<details class="pk-unit"${filtering || A.pk.open.has(uid) ? ' open' : ''} data-unit="${uid}">
+        <summary><span><b>${u.n}. ${esc(u.short)}</b> <span class="sub">${on} / ${xs.length}</span></span>
+          <button class="chip${on === xs.length ? ' on' : ''}" data-act="pkunit" data-arg="${uid}">${on === xs.length ? '모두 해제' : '모두 선택'}</button></summary>
+        <ul class="pk-list">${xs.map(x => `<li><label><input type="checkbox" data-pk="${esc(x.id)}"${A.pk.sel.has(x.id) ? ' checked' : ''}>
+          <b lang="en">${esc(x.t)}</b><span>${esc(x.ko.join(' · '))}</span><em>${'★'.repeat(x.star)}</em></label></li>`).join('')}</ul>
+      </details>`;
+    }).join('');
+}
+function viewPick() {
+  const k = A.pk;
+  const chips = (key, map) => (Array.isArray(map) ? map : Object.entries(map)).map(([v, l]) => `<button class="chip${k[key] === v ? ' on' : ''}" data-act="pkf" data-arg="${key}:${v}">${l}</button>`).join('');
+  return `<header class="top"><h1>내 단어 고르기</h1><button class="btn small" data-act="pkcancel">취소</button></header>
+  <section class="panel pk-filter">
+    <input class="pk-search" type="search" placeholder="영어·한글로 찾기 (예: cardi, 심장)" value="${esc(k.q)}" data-pksearch>
+    <div class="pk-row"><span>종류</span><div class="chips">${chips('kind', PK_KIND)}</div></div>
+    <div class="pk-row"><span>중요도</span><div class="chips">${chips('star', [['', '전체'], ['3', '★★★'], ['2', '★★'], ['1', '★']])}</div></div>
+    <div class="pk-row"><span>상태</span><div class="chips">${chips('status', PK_STATUS)}</div></div>
+    <div class="pk-row"><span>계통</span><div class="chips">${chips('unit', [['', '전체'], ...IX.units.map(u => [u.id, u.short])])}</div></div>
+    <details class="pk-paste"><summary>단어 목록 붙여넣기 (교수님 목록 등)</summary>
+      <textarea rows="4" data-pkpaste placeholder="영어 단어를 줄바꿈이나 쉼표로 나눠 붙여 넣으세요"></textarea>
+      <button class="btn small" data-act="pkpaste">찾아서 선택</button>
+      ${k.pasteMsg ? `<p class="note">${k.pasteMsg}</p>` : ''}
+    </details>
+  </section>
+  <div id="pklist">${pkListHTML()}</div>
+  <div class="bottom-cta pk-save"><button class="btn primary big" data-act="pksave"><span id="pkcount">${pkCountText()}</span> · 저장</button></div>`;
+}
+function pkRefreshList() {
+  const el = document.getElementById('pklist');
+  if (el) el.innerHTML = pkListHTML();
+  const c = document.getElementById('pkcount');
+  if (c) c.innerHTML = pkCountText();
+}
+Object.assign(ACT, {
+  pick: back => {
+    A.pk = { sel: new Set(A.settings.myList || []), q: '', kind: '', star: '', status: '', unit: '', open: new Set(), back: back || A.view };
+    go('pickw');
+  },
+  pkf: arg => { const [key, v] = arg.split(':'); A.pk[key] = v; render(); },
+  pkall: on => { for (const x of pkFiltered()) { if (on === '1') A.pk.sel.add(x.id); else A.pk.sel.delete(x.id); } pkRefreshList(); },
+  pkunit: uid => {
+    const xs = pkFiltered().filter(x => x.unit === uid);
+    const all = xs.every(x => A.pk.sel.has(x.id));
+    for (const x of xs) { if (all) A.pk.sel.delete(x.id); else A.pk.sel.add(x.id); }
+    pkRefreshList();
+  },
+  pkpaste: () => {
+    const ta = $app.querySelector('textarea[data-pkpaste]');
+    const words = (ta ? ta.value : '').split(/[\n,;·]+/).map(z => z.trim()).filter(Boolean);
+    const byT = new Map(IX.items.map(x => [normEn(x.t), x]));
+    const byKo = new Map(); for (const x of IX.items) for (const k of x.ko) if (!byKo.has(normKo(k))) byKo.set(normKo(k), x);
+    const miss = [];
+    let found = 0;
+    for (const w of words) {
+      const x = byT.get(normEn(w)) || byKo.get(normKo(w));
+      if (x) { A.pk.sel.add(x.id); found++; } else miss.push(w);
+    }
+    A.pk.pasteMsg = `${found}개를 찾아서 골랐어요.${miss.length ? ` 앱에 없는 단어 ${miss.length}개: ${esc(miss.slice(0, 10).join(', '))}${miss.length > 10 ? ' …' : ''}` : ''}`;
+    render();
+  },
+  pkcancel: () => go(A.pk.back || 'home'),
+  pksave: async () => {
+    A.settings.myList = [...A.pk.sel];
+    IX.myList = A.settings.myList;
+    delete ORDERS.my;
+    await saveSettings();
+    if (A.pk.back === 'pace' && A.draft) A.draft.scope = A.settings.myList.length ? 'my' : A.draft.scope;
+    if (A.qcfg && A.pk.back === 'qset') A.qcfg.range = 'my';
+    go(A.pk.back || 'home');
+    toast(`내 단어 ${A.settings.myList.length}개를 저장했어요`);
+  },
+});
+document.addEventListener('input', e => {
+  if (e.target.matches('input[data-pksearch]') && A.pk) { A.pk.q = e.target.value; pkRefreshList(); }
+});
+document.addEventListener('change', e => {
+  const id = e.target.dataset && e.target.dataset.pk;
+  if (id && A.pk) { if (e.target.checked) A.pk.sel.add(id); else A.pk.sel.delete(id); const c = document.getElementById('pkcount'); if (c) c.innerHTML = pkCountText(); }
+});
+document.addEventListener('toggle', e => {
+  if (e.target.matches && e.target.matches('details.pk-unit') && A.pk) { const u = e.target.dataset.unit; if (e.target.open) A.pk.open.add(u); else A.pk.open.delete(u); }
+}, true);
 
 // ───────── 백업 ─────────
 async function sendBackup() {

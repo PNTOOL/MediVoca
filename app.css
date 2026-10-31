@@ -213,6 +213,36 @@ details.units .chip { min-height: 38px; }
 #app[data-view="qrun"] { padding-top: 0; }
 .tabs .tab:first-child { font-weight: 600; color: var(--deep); }
 
+/* 헷갈리는 묶음 · 카드 */
+.gtable { list-style: none; padding: 0; margin: 4px 0 0; display: grid; gap: 4px; }
+.gtable li { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; padding: 5px 8px; border-radius: 8px; font-size: 14.5px; }
+.gtable li.me { background: var(--tint); font-weight: 600; }
+.qfb-btns { display: flex; gap: 8px; margin-top: 4px; }
+.qcardbox { margin-top: 12px; }
+.qopt span[lang="en"] { letter-spacing: 0.02em; font-weight: 500; }
+.qw { all: unset; display: grid; gap: 2px; cursor: pointer; width: 100%; }
+.qw b { color: var(--deep); }
+.chip.bad { border-color: #c8553d; color: #a63e27; }
+
+/* 내 단어 고르기 */
+.pk-filter { display: grid; gap: 10px; }
+.pk-search { font: inherit; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); min-height: 48px; }
+.pk-row { display: grid; grid-template-columns: 52px 1fr; gap: 8px; align-items: start; }
+.pk-row > span { font-size: 13px; font-weight: 600; color: var(--sub); padding-top: 8px; }
+.pk-row .chip { min-height: 34px; padding: 5px 11px; font-size: 13.5px; }
+.pk-paste textarea { margin: 8px 0; }
+.pk-bulk { padding: 4px 4px 8px; }
+.pk-unit { background: var(--card); border: var(--card-border); box-shadow: var(--card-shadow); border-radius: var(--r-card); margin-bottom: 8px; }
+.pk-unit summary { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 12px 14px; cursor: pointer; list-style: none; }
+.pk-unit summary::-webkit-details-marker { display: none; }
+.pk-list { list-style: none; padding: 0 8px 8px; margin: 0; display: grid; }
+.pk-list label { display: grid; grid-template-columns: 24px minmax(0, 1.1fr) minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 9px 6px; border-top: 1px solid var(--line); font-size: 14.5px; cursor: pointer; }
+.pk-list input { width: 20px; height: 20px; accent-color: var(--pri); }
+.pk-list span { color: var(--sub); font-size: 13.5px; }
+.pk-list em { font-style: normal; font-size: 11px; color: var(--deep); }
+.pk-save { position: sticky; bottom: calc(10px + var(--safe-b)); }
+.pk-save small { font-weight: 400; opacity: 0.85; font-size: 12.5px; }
+
 /* 준비 끝 */
 .readycard { background: var(--pri); color: var(--pri-ink); border-radius: calc(var(--r-card) + 4px); padding: 22px; display: grid; gap: 12px; margin-bottom: 12px; }
 .readycard .big { font-family: var(--display); font-weight: var(--display-w); font-size: 38px; line-height: 1.1; letter-spacing: -0.03em; }

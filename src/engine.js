@@ -148,6 +148,7 @@ export function scopeUnits(scope) {
   return list.length ? new Set(list) : null;
 }
 export function normScope(scope) {
+  if (scope === 'my') return 'my';
   const stars = [...scopeStars(scope)].sort((a, b) => b - a).join('');
   const units = scopeUnits(scope);
   return units ? stars + '|' + [...units].sort().join('.') : stars;
@@ -156,6 +157,7 @@ export function makeScope(stars, units) {
   return normScope([...stars].join('') + (units && units.length ? '|' + units.join('.') : ''));
 }
 export function scopeLabel(scope) {
+  if (scope === 'my') return '내 단어';
   const d = normScope(scope).split('|')[0];
   const units = scopeUnits(scope);
   const s = d === '321' ? '전체' : d === '32' ? '핵심 (★★ 이상)' : d === '3' ? '★★★만' : [...d].map(n => '★'.repeat(Number(n))).join(' · ');
@@ -166,7 +168,18 @@ export const SCOPES = {
   core: { label: '핵심 (★★ 이상)', test: x => x.star >= 2 },
   all: { label: '전체', test: () => true },
 };
+// 'my' = 직접 고른 단어 (index.myList). 고른 단어에 필요한 조각도 함께 넣는다.
 export function scopeSet(index, scope = 'all') {
+  if (scope === 'my') {
+    const set = new Set();
+    for (const id of index.myList || []) {
+      const x = index.byId.get(id);
+      if (!x) continue;
+      set.add(id);
+      if (x.k === 'word') for (const f of x.parts || []) if (index.byId.has('p:' + f)) set.add('p:' + f);
+    }
+    return set;
+  }
   const stars = scopeStars(scope);
   const units = scopeUnits(scope);
   const set = new Set();

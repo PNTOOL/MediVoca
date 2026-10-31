@@ -1,13 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { UNITS, PAIRS } from '../data/index.js';
+import { UNITS, PAIRS, CONFUSIONS } from '../data/index.js';
 import { buildIndex } from '../src/data.js';
 import {
   RULES, dayKey, dayEnd, ratingOf, replay, statusOf, newOrder, pickNew, planToday,
   newSession, current, answer, isDone, progress, streak, daySummary, isSticky,
 } from '../src/engine.js';
 
-const IX = buildIndex(UNITS, PAIRS);
+const IX = buildIndex(UNITS, PAIRS, CONFUSIONS);
 const DAY = 86400000;
 const T0 = new Date(2026, 10, 2, 10, 0).getTime(); // 2026-11-02 10:00 (서울)
 const ev = (t, c, b, ok) => (b >= 3 ? { t, c, b, ok, d: 'A' } : { t, c, b, d: 'A' });
@@ -311,4 +311,15 @@ test('범위에 단원을 더할 수 있다 (★ + 단원)', async () => {
   const p = planToday(IX, new Map(), { now: T0, scope: sc });
   for (const id of p.fresh) assert.ok(set.has(id));
   assert.equal(normScope('321'), '321');
+});
+
+test('내 단어(my): 고른 단어와 필요한 조각만', () => {
+  const ix = buildIndex(UNITS, PAIRS, CONFUSIONS);
+  ix.myList = ['w:dyspnea', 'a:NPO'];
+  const set = scopeSet(ix, 'my');
+  assert.ok(set.has('w:dyspnea') && set.has('a:NPO') && set.has('p:dys-') && set.has('p:-pnea'));
+  assert.equal(normScope('my'), 'my');
+  assert.equal(scopeLabel('my'), '내 단어');
+  const p = planToday(ix, new Map(), { now: T0, scope: 'my', order: newOrder(ix, 'my') });
+  assert.deepEqual(new Set(p.fresh), set);
 });
