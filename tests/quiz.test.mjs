@@ -1,10 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { UNITS, PAIRS } from '../data/index.js';
+import { UNITS, PAIRS, CONFUSIONS } from '../data/index.js';
 import { buildIndex } from '../src/data.js';
 import { buildQuiz, makeQuestion, grade, summarize, typesFor, rng, QTYPES } from '../src/quiz.js';
 
-const IX = buildIndex(UNITS, PAIRS);
+const IX = buildIndex(UNITS, PAIRS, CONFUSIONS);
 
 test('문항 수와 유형을 지키고, 같은 단어는 한 번만 나온다', () => {
   const qs = buildQuiz(IX, IX.items, { n: 30, seed: 1 });
@@ -21,11 +21,11 @@ test('같은 씨앗이면 같은 시험', () => {
   assert.deepEqual(a, b);
 });
 
-test('5지선다: 보기 5개, 정답 1개, 겹치지 않음', () => {
-  const qs = buildQuiz(IX, IX.items, { n: 60, types: ['pick', 'desc', 'parts'], seed: 3 });
+test('4지선다: 보기 4개, 정답 1개, 겹치지 않음', () => {
+  const qs = buildQuiz(IX, IX.items, { n: 80, types: ['ko2en', 'pick', 'desc', 'parts'], seed: 3 });
   for (const q of qs) {
-    assert.equal(q.options.length, 5, q.id + ' ' + q.type);
-    assert.equal(new Set(q.options).size, 5);
+    assert.equal(q.options.length, 4, q.id + ' ' + q.type);
+    assert.equal(new Set(q.options).size, 4);
     assert.equal(q.options.filter(o => o === q.answer).length, 1);
   }
 });
@@ -64,7 +64,7 @@ test('유형 목록과 결과 요약', () => {
   assert.ok(typesFor(IX.get('a:NPO')).includes('abbr'));
   assert.ok(!typesFor(IX.get('a:NPO')).includes('spell'));
   assert.ok(typesFor(IX.get('w:cholecystectomy')).includes('parts'));
-  assert.equal(Object.keys(QTYPES).length, 6);
+  assert.equal(Object.keys(QTYPES).length, 7);
   const qs = buildQuiz(IX, IX.items, { n: 4, seed: 9 });
   const s = summarize(qs, [{ ok: true }, { ok: false }, { ok: true }, null]);
   assert.equal(s.ok, 2);
@@ -76,4 +76,35 @@ test('뜻이 같은 다른 형태도 철자 정답으로 인정하고, 뜻이 �
   assert.ok(grade(q, 'vesic/o').ok);
   const d = makeQuestion(IX, IX.get('w:empyema'), 'desc', rng(1));
   assert.ok(!d.options.includes('pyothorax'));
+});
+
+import { misspellings, koSim } from '../src/quiz.js';
+import { normEn } from '../src/text.js';
+
+test('철자 함정은 자주 틀리는 방식이고, 진짜 용어는 아니다', () => {
+  const m = misspellings('hemorrhage', IX.get('w:hemorrhage')).strong;
+  assert.ok(m.includes('hemorhage'));
+  assert.ok(m.includes('hemorrage'));
+  assert.ok(misspellings('dysphagia').all.includes('disphagia'));
+  assert.ok(misspellings('dysphagia').all.includes('dysfagia'));
+  assert.ok(misspellings('ophthalmology').all.includes('ophtalmology'));
+  assert.ok(misspellings('pneumonia').all.includes('neumonia'));
+  assert.ok(misspellings('anuria').all.includes('anurea'));
+  assert.ok(misspellings('gastritis', IX.get('w:gastritis')).all.includes('gastroitis'));
+  assert.ok(misspellings('myocardial infarction').all.every(s => s.startsWith('myocardial ') || s.endsWith(' infarction')));
+});
+
+test('한국어 → 영어: 헷갈리는 진짜 용어와 철자 함정이 함께 나온다', () => {
+  const real = new Set(IX.items.flatMap(y => [y.t, y.full].filter(Boolean)).map(normEn));
+  const q = makeQuestion(IX, IX.get('w:hemoptysis'), 'ko2en', rng(3));
+  assert.equal(q.options.length, 4);
+  assert.ok(q.options.includes('hemoptysis'));
+  assert.ok(q.options.some(o => ['hematemesis', 'hematuria', 'hematochezia', 'melena'].includes(o)), q.options.join(','));
+  assert.ok(q.options.some(o => !real.has(normEn(o))), '철자 함정 ' + q.options.join(','));
+  const qs = buildQuiz(IX, IX.items, { n: 100, types: ['ko2en'], seed: 8 });
+  for (const q2 of qs) {
+    assert.equal(q2.options.filter(o => normEn(o) === normEn(q2.answer)).length, 1, q2.id);
+    assert.ok(q2.options.some(o => !real.has(normEn(o))), '철자 함정 없음: ' + q2.id + ' ' + q2.options.join(','));
+  }
+  assert.ok(koSim('무뇨', '핍뇨') > koSim('무뇨', '심장'));
 });
