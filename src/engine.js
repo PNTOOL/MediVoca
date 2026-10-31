@@ -606,3 +606,33 @@ export function focusOrder(index, order, focus) {
   }
   return out;
 }
+
+// ───────── 철자 카드 (한글 → 영어 철자 쓰기) ─────────
+// 단어가 익힘이 되면 같은 단어의 철자 카드 's:<id>'가 생긴다. 기록·FSRS는 보통 카드와 똑같이 쓰고, 상태는 따로 센다.
+export const SPELL = 's:';
+export const isSpell = id => String(id).startsWith(SPELL);
+export const spellBase = id => String(id).slice(SPELL.length);
+export const SPELL_KINDS = { off: [], word: ['word'], wordabbr: ['word', 'abbr'], all: ['word', 'abbr', 'part'] };
+// 상태를 보통 카드와 철자 카드로 나눈다
+export function splitStates(all) {
+  const states = new Map(), spell = new Map();
+  for (const [id, s] of all) (isSpell(id) ? spell : states).set(id, s);
+  return { states, spell };
+}
+// 오늘 새로 넣을 철자 카드: 익힘이 된 단어 중 아직 철자 카드가 없는 것, 먼저 익힌 순서로
+export function spellCandidates(index, states, spell, mode = 'word', { now = Date.now(), perDay = 10 } = {}) {
+  const kinds = SPELL_KINDS[mode] || [];
+  if (!kinds.length) return [];
+  const today = dayKey(now);
+  const madeToday = [...spell.values()].filter(s => s.firstDay === today).length;
+  const room = Math.max(0, perDay - madeToday);
+  if (!room) return [];
+  const out = [];
+  for (const s of states.values()) {
+    if (!s.masteredDay || spell.has(SPELL + s.id)) continue;
+    const x = index.byId.get(s.id);
+    if (!x || !kinds.includes(x.k)) continue;
+    out.push([s.masteredDay, s.id]);
+  }
+  return out.sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0)).slice(0, room).map(z => SPELL + z[1]);
+}

@@ -3,7 +3,7 @@ import { UNITS, PAIRS, CONFUSIONS } from '../data/index.js';
 import { buildIndex } from './data.js';
 import {
   RULES, replay, planToday, ratingOf, newOrder, newSession, current, answer, isDone,
-  progress, streak, daySummary, dayKey, setSummary, focusOrder, pickNew, isSyl, sylUnits, makeSyl, LIST_ORDERS, MARKS, answerMarks, marksList, PACES, paceInfo, scopeSet, scopeLabel, normScope, scopeUnits, makeScope, overview,
+  progress, streak, daySummary, dayKey, setSummary, focusOrder, pickNew, splitStates, spellCandidates, isSpell, spellBase, isSyl, sylUnits, makeSyl, LIST_ORDERS, MARKS, answerMarks, marksList, PACES, paceInfo, scopeSet, scopeLabel, normScope, scopeUnits, makeScope, overview,
   minutesForCards, daysBetween, scopeStars,
 } from './engine.js';
 import { guideHTML } from './guide.js';
@@ -12,7 +12,7 @@ import { QTYPES, buildQuiz, grade, summarize, spellHard } from './quiz.js';
 import { runFunnel, countIf, groupsIn, STEPS } from './funnel.js';
 import { dayStats, weekSummary, masteredSeries, mergeHistory } from './history.js';
 import { makeBackup, backupName, parseBackup, mergeLogs, mergeNotes, mergeFlags } from './backup.js';
-import { esc, rich, speakable, normEn, normKo } from './text.js';
+import { esc, rich, speakable, normEn, normKo, gradeSpell } from './text.js';
 import * as store from './store.js';
 
 const IX = buildIndex(UNITS, PAIRS, CONFUSIONS);
@@ -22,6 +22,7 @@ const $app = document.getElementById('app');
 
 const DEFAULTS = {
   retention: 0.9, rn: false, rate: 0.85, label: '', device: '',
+  spell: 'word',                                 // 철자 카드: off | word 단어만 | wordabbr 단어+약어 | all 조각까지
   scope: 'all',                                  // 공부 범위: star3 | core | all
   pace: { mode: 'daily', cards: RULES.dailyCards }, // 공부 속도
   seenGuide: false,                              // 첫 시작(환영 → 색 → 계획 → 준비)을 마쳤는지
@@ -89,8 +90,10 @@ async function boot() {
   if (!store.ok) toast('이 창에서는 기록을 저장할 수 없어요. 비공개 창이 아닌 보통 창으로 열어 주세요.', 6000);
 }
 
+// 보통 카드 상태(A.states)와 철자 카드 상태(A.spell, 's:단어id')를 나눠 둔다
 function recompute() {
-  A.states = replay(A.log, { retention: A.settings.retention });
+  const sp = splitStates(replay(A.log, { retention: A.settings.retention }));
+  A.states = sp.states; A.spell = sp.spell;
 }
 
 // 내 단어 목록(여러 개). curL() = 지금 고른 목록. 엔진의 범위 'my'는 IX.myList(= 지금 목록)를 쓴다.
@@ -129,10 +132,19 @@ const todayAdj = () => { const a = A.settings.todayAdj; return a && a.day === da
 // 그룹 먼저·나중에 (계획마다 settings.focus[계획 키] = { first, later })
 const focusOf = key => (A.settings.focus || {})[key] || { first: [], later: [] };
 const planOrder = () => focusOrder(IX, orderFor(AP().scope), focusOf(trackKey()));
-const plan = (extra = A.extraNew + todayAdj()) => planToday(IX, A.states, {
-  now: Date.now(), retention: A.settings.retention, extraNew: extra,
-  pace: AP().pace, scope: AP().scope, order: planOrder(),
-});
+// 오늘 할 일: 철자 카드가 켜져 있으면 철자 카드 복습도 같이 세고(하루 장수 안), 새 철자 카드(하루 10개까지)를 복습 뒤에 붙인다
+const spellMode = () => A.settings.spell || 'word';
+const plan = (extra = A.extraNew + todayAdj()) => {
+  const on = spellMode() !== 'off';
+  const st = on && A.spell.size ? new Map([...A.states, ...A.spell]) : A.states;
+  const p = planToday(IX, st, { now: Date.now(), retention: A.settings.retention, extraNew: extra, pace: AP().pace, scope: AP().scope, order: planOrder() });
+  if (on) {
+    const room = Math.max(0, RULES.reviewMax - p.reviews.length);
+    const add = spellCandidates(IX, A.states, A.spell, spellMode(), { now: Date.now() }).slice(0, room);
+    if (add.length) { p.reviews = [...p.reviews, ...add]; p.minutes += Math.round(add.length * 0.4); p.spellNew = add.length; }
+  }
+  return p;
+};
 const saveSettings = () => store.set('settings', A.settings);
 
 // ───────── 그리기 ─────────
@@ -146,7 +158,7 @@ function render() {
   const ta = $app.querySelector('textarea');
   if (ta && A.editNote) ta.focus();
   const qin = $app.querySelector('input.qin:not([disabled])');
-  if (qin) qin.focus();
+  if (qin) qin.focus({ preventScroll: A.view === 'study' });
 }
 
 const KIND = { part: '조각', word: '단어', abbr: '약어' };
@@ -821,6 +833,8 @@ function viewSettings() {
     <div class="set"><span>목표 기억률</span><div>
       ${chip('ret', 0.85, s.retention === 0.85, '85% 여유')}${chip('ret', 0.9, s.retention === 0.9, '90% 기본')}${chip('ret', 0.95, s.retention === 0.95, '95% 시험 주간')}
     </div><p class="note">높일수록 더 자주 복습해요.</p></div>
+    <div class="set"><span>철자 카드</span><div>${chip('spell', 'off', spellMode() === 'off', '끄기')}${chip('spell', 'word', spellMode() === 'word', '단어만')}${chip('spell', 'wordabbr', spellMode() === 'wordabbr', '단어+약어')}${chip('spell', 'all', spellMode() === 'all', '조각까지')}</div>
+      <p class="note">익힘이 된 단어는 한글을 보고 영어를 직접 쓰는 카드가 복습에 섞여 나와요 (하루 새 철자 카드 10개까지).</p></div>
     <div class="set"><span>RN 영어 설명</span><div>${chip('rn', 1, s.rn, '켜기')}${chip('rn', 0, !s.rn, '끄기')}</div></div>
     <div class="set"><span>발음 속도</span><div>${chip('rate', 0.7, s.rate === 0.7, '느리게')}${chip('rate', 0.85, s.rate === 0.85, '보통')}${chip('rate', 1, s.rate === 1, '빠르게')}</div></div>
     <div class="set"><span>이 기기 이름</span><div>${['폰', '태블릿', '컴퓨터', '노트북'].map(x => chip('label', x, s.label === x, x)).join('')}</div>
@@ -830,10 +844,11 @@ function viewSettings() {
 
 // ───────── 학습 화면 ─────────
 // 설명 화면에서는 방금 답한 카드를 보여 준다 (답하면 큐에서 빠지므로 따로 들고 있는다)
-const shown = () => (A.phase === 'explain' && A.held ? A.held : A.sess ? current(A.sess) : null);
+const shown = () => ((A.phase === 'explain' || A.phase === 'spellfb') && A.held ? A.held : A.sess ? current(A.sess) : null);
 function viewStudy() {
   const cur = shown();
   if (!cur) return '';
+  if (isSpell(cur.c)) return viewSpell(cur);
   const x = IX.get(cur.c);
   if (!x) return '';
   const s = A.sess;
@@ -883,6 +898,61 @@ function viewStudy() {
     <div class="studyhead"><span>${Math.min(s.doneCards + (cur.c in s.first ? 0 : 1), s.total)} / ${s.total}</span>${s.label ? `<span class="studying" title="지금 공부 중">${esc(s.label)}</span>` : ''}
     <button class="close" data-act="toplan" aria-label="그만하기 (하던 곳은 기억해요)">✕</button></div></div>
     <div class="study ${A.phase}">${face}${side}</div>
+    <footer class="actions">${actions}</footer>`;
+}
+
+// ───────── 철자 카드: 한글 뜻을 보고 영어를 직접 쓴다 (앱이 채점) ─────────
+// 정확히 맞음 → 보통(3), 힌트 보고 맞음 → 어려움(2), 틀림(한 글자라도) → 다시(1). 틀리면 정답을 한 번 따라 써야 넘어간다.
+function spellDiff(given, target) {
+  const a = normEn(given), b = target;
+  const bn = normEn(b);
+  // 정답 글자 중 쓴 글자와 맞춘(최장 공통 부분열) 것은 그대로, 빠지거나 틀린 것은 표시
+  const m = a.length, n = bn.length, L = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
+  for (let i = m - 1; i >= 0; i--) for (let j = n - 1; j >= 0; j--) L[i][j] = a[i] === bn[j] ? L[i + 1][j + 1] + 1 : Math.max(L[i + 1][j], L[i][j + 1]);
+  const keep = new Set(); let i = 0, j = 0;
+  while (i < m && j < n) { if (a[i] === bn[j]) { keep.add(j); i++; j++; } else if (L[i + 1][j] >= L[i][j + 1]) i++; else j++; }
+  let k = 0; let out = '';
+  for (const ch of b) { if (/[\s\-\/\.'’,()]/.test(ch)) { out += esc(ch); continue; } out += keep.has(k) ? esc(ch) : `<mark>${esc(ch)}</mark>`; k++; }
+  return out;
+}
+function viewSpell(cur) {
+  const x = IX.get(spellBase(cur.c));
+  if (!x) return '';
+  const s = A.sess;
+  const pct = s.total ? Math.min(100, (s.doneCards / s.total) * 100) : 100;
+  const unit = IX.unitOf.get(x.id);
+  const ask = x.k === 'abbr' ? '약어로 쓰세요' : x.k === 'part' ? '조각(어근·접두사·접미사)으로 쓰세요' : '영어로 쓰세요';
+  const hint = x.k === 'word' && (x.parts || []).length ? x.parts.map(esc).join(' + ') : `${esc(x.t[0])}${'·'.repeat(Math.max(0, normEn(x.t).length - 1))} (${normEn(x.t).length}글자)`;
+  const R = A.spellRes;
+  const tag = cur.kind === 'again' || cur.kind === 'final' ? '<span class="tag again">다시</span>' : '<span class="tag spell">철자</span>';
+  let body, actions;
+  if (A.phase !== 'spellfb') {
+    body = `<section class="face spellface">
+      <div class="meta">${tag}<span>${KIND[x.k]} · ${stars(x.star)} · ${esc(unit.short)}</span></div>
+      <div class="ko-big">${esc(koMain(x))}</div>
+      ${x.mean ? `<p class="sub center">${rich(x.mean)}</p>` : ''}
+      <p class="note center">${ask}</p>
+      <input class="qin spellin" data-spell type="text" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" lang="en" enterkeyhint="done" placeholder="여기에 쓰세요">
+      <div class="face-tools"><button class="icon-btn" data-act="spellhint">${A.hint ? hint : '힌트 보기'}</button></div>
+    </section>`;
+    actions = `<div class="checks"><button class="btn no" data-act="spellgive">모르겠어요</button><button class="btn yes" data-act="spellcheck">확인 <small>Enter</small></button></div>`;
+  } else {
+    const ok = R && R.ok;
+    body = `<section class="face spellface">
+      <div class="meta">${tag}<span>${esc(koMain(x))}</span></div>
+      <p class="spellres ${ok ? 'good' : 'bad'}">${ok ? (R.hint ? '맞았어요 (힌트 봄)' : '맞았어요!') : R.given ? (R.near ? '아까워요, 한 글자 달라요' : '틀렸어요') : '정답이에요'}</p>
+      <div class="word" lang="en">${ok ? esc(x.t) : spellDiff(R.given || '', x.t)}</div>
+      ${!ok && R.given ? `<p class="sub center">내가 쓴 것: <s lang="en">${esc(R.given)}</s></p>` : ''}
+      <div class="face-tools"><button class="icon-btn" data-act="sayid" data-arg="${esc(x.id)}" aria-label="발음 듣기">${IC.sound}</button></div>
+      ${partChips(x)}
+      ${ok ? '' : `<p class="note center">정답을 한 번 따라 써 보세요</p><input class="qin spellin" data-spellre type="text" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" lang="en" placeholder="${esc(x.t)}">`}
+    </section>`;
+    actions = `<div class="checks one"><button class="btn primary big" data-act="spellnext" ${ok || A.spellRetyped ? '' : 'disabled'} id="spellnext">${ok || A.spellRetyped ? '다음' : '따라 쓰면 넘어가요'} <small>Enter</small></button></div>`;
+  }
+  return `<div class="studybar"><div class="progress"><i style="width:${pct}%"></i></div>
+    <div class="studyhead"><span>${Math.min(s.doneCards + (cur.c in s.first ? 0 : 1), s.total)} / ${s.total}</span>${s.label ? `<span class="studying">${esc(s.label)}</span>` : ''}
+    <button class="close" data-act="toplan" aria-label="그만하기 (하던 곳은 기억해요)">✕</button></div></div>
+    <div class="study ${A.phase === 'spellfb' ? 'explain' : 'front'}">${body}</div>
     <footer class="actions">${actions}</footer>`;
 }
 
@@ -1364,9 +1434,32 @@ const ACT = {
     A.qcfg = { ...(A.qcfg || QDEFAULT()), ranges: ['ids'], ids: ids.length >= 3 ? ids : z.ids, idsLabel: z.name }; delete A.qcfg.range;
     go('qset');
   },
+  spellhint: () => { A.hint = true; render(); const i = $app.querySelector('input[data-spell]'); if (i) i.focus(); },
+  spellcheck: async () => {
+    if (A.phase !== 'front' || A.busy) return;
+    const cur = current(A.sess); if (!cur || !isSpell(cur.c)) return;
+    const inp = $app.querySelector('input[data-spell]'); const given = inp ? inp.value.trim() : '';
+    if (!given) { toast('철자를 써 주세요. 모르면 "모르겠어요"'); return; }
+    const x = IX.get(spellBase(cur.c));
+    const g = gradeSpell([x.t], given);
+    A.spellRes = { given, ok: g.ok, near: g.near, hint: A.hint };
+    A.held = { ...cur }; A.spellRetyped = false;
+    await record(g.ok ? (A.hint ? 2 : 3) : 1, g.ok && !A.hint ? true : undefined);
+    A.phase = 'spellfb'; render();
+  },
+  spellgive: async () => {
+    if (A.phase !== 'front' || A.busy) return;
+    const cur = current(A.sess); if (!cur || !isSpell(cur.c)) return;
+    A.spellRes = { given: '', ok: false, near: false, hint: A.hint };
+    A.held = { ...cur }; A.spellRetyped = false;
+    await record(1);
+    A.phase = 'spellfb'; render();
+  },
+  spellnext: () => { if (A.phase === 'spellfb' && (A.spellRes.ok || A.spellRetyped)) { A.spellRes = null; nextCard(); } },
   coachok: async () => { A.settings.coachSeen = true; await saveSettings(); render(); },
   adjtoggle: () => { A.adjOpen = !A.adjOpen; render(); },
   ret: async v => { A.settings.retention = Number(v); await store.set('settings', A.settings); recompute(); render(); },
+  spell: async v => { A.settings.spell = v; await saveSettings(); render(); },
   rn: async v => { A.settings.rn = v === '1'; await store.set('settings', A.settings); render(); },
   rate: async v => { A.settings.rate = Number(v); await store.set('settings', A.settings); render(); sayEn('dyspnea'); },
   label: async v => { A.settings.label = v; await store.set('settings', A.settings); render(); },
@@ -1392,7 +1485,7 @@ const QRANGES = [
   { g: '공부 기록', k: 'fails', name: '틀린 적 있음' },
   { g: '시험 기록', k: 'qw', name: '시험에서 틀림' },
   { g: '시험 기록', k: 'qu', name: '시험에서 헷갈렸어요' },
-  { g: '철자', k: 'ws', name: '철자 쓰기에서 틀림' },
+  { g: '철자', k: 'ws', name: '철자에서 틀림', d: '시험 철자 쓰기 + 철자 카드' },
   { g: '철자', k: 'hard', name: '철자가 까다로운 단어', d: 'rrh·phth·pn 같은 단어' },
   { g: '표시·목록', k: 'flag', name: '★ 아주 중요' },
   { g: '표시·목록', k: 'my', name: '내 단어' },
@@ -1410,7 +1503,7 @@ function rangeIds(k, cfg) {
     case 'fails': return ids([...A.states.values()].filter(s => s.fails > 0).map(s => s.id));
     case 'qw': return ids(Object.entries(A.qmarks).filter(([, v]) => v.last === 'w').map(([id]) => id));
     case 'qu': return ids(Object.entries(A.qmarks).filter(([, v]) => v.last === 'u').map(([id]) => id));
-    case 'ws': return ids(Object.entries(A.qmarks).filter(([, v]) => v.ws > 0).map(([id]) => id));
+    case 'ws': return ids([...Object.entries(A.qmarks).filter(([, v]) => v.ws > 0).map(([id]) => id), ...[...A.spell.values()].filter(s => s.fails > 0).map(s => spellBase(s.id))]);
     case 'hard': return ids(IX.items.filter(x => x.k !== 'abbr' && spellHard(x.t) && (cfg.hardAll || A.states.has(x.id))).map(x => x.id));
     case 'flag': return ids(Object.keys(A.flags).filter(isFlag));
     case 'my': return ids(myIds());
@@ -1871,7 +1964,18 @@ Object.assign(ACT, {
     toast(`"${myName()}"에 ${myIds().length}개를 저장했어요`);
   },
 });
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Enter') return;
+  if (e.target.matches('input[data-spell]')) { e.preventDefault(); ACT.spellcheck(); }
+  else if (e.target.matches('input[data-spellre]')) { e.preventDefault(); if (A.spellRetyped) ACT.spellnext(); }
+});
 document.addEventListener('input', e => {
+  if (e.target.matches('input[data-spellre]') && A.held) {
+    const x = IX.get(spellBase(A.held.c));
+    const okNow = x && normEn(e.target.value) === normEn(x.t);
+    if (okNow !== !!A.spellRetyped) { A.spellRetyped = okNow; const b = document.getElementById('spellnext'); if (b) { b.disabled = !okNow; b.innerHTML = okNow ? '다음 <small>Enter</small>' : '따라 쓰면 넘어가요 <small>Enter</small>'; } }
+    return;
+  }
   if (e.target.matches('input[data-hsearch]')) { A.hq = e.target.value; const el = document.getElementById('hsres'); if (el) el.innerHTML = hsearchHTML(); return; }
   if (e.target.matches('input[data-pksearch]') && A.pk) { A.pk.q = e.target.value; pkRefreshList(); }
 });
@@ -2104,6 +2208,8 @@ document.addEventListener('keydown', e => {
   if (A.view !== 'study' || e.target.closest('textarea, input') || e.ctrlKey || e.metaKey || e.altKey) return;
   const k = e.key.toLowerCase();
   const go = (act, arg) => { e.preventDefault(); ACT[act](arg); };
+  const sc = shown();
+  if (sc && isSpell(sc.c)) { if (A.phase === 'spellfb' && (k === 'enter' || k === ' ')) return go('spellnext'); if (k === 'p' && A.phase === 'spellfb') return go('sayid', spellBase(sc.c)); return; }
   if (k === 'p') return go('say');
   if (k === 'f') { const c = shown(); if (c) return go('flag', c.c); }
   if (A.phase === 'front') {

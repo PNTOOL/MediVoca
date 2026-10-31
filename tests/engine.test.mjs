@@ -405,3 +405,24 @@ test('그룹 먼저·나중에: 고른 단원이 앞으로, 조각은 단어 앞
   const p = planToday(ix, new Map(), { now: Date.UTC(2026, 9, 31, 3), scope: '321', order: fo, extraNew: 10 });
   assert.ok(p.fresh.some(id => ix.byId.get(id).unit === 'm08' && ix.byId.get(id).k === 'word'));
 });
+
+import { splitStates, spellCandidates, isSpell, spellBase } from '../src/engine.js';
+test('철자 카드: 익힘이 된 단어만, 하루 개수 제한, 상태 나누기', () => {
+  const ix = buildIndex(UNITS, PAIRS, CONFUSIONS);
+  const w = ix.items.find(x => x.k === 'word'), a = ix.items.find(x => x.k === 'abbr');
+  const D = 86400000, t0 = Date.UTC(2026, 9, 20, 3);
+  const log = [];
+  for (const x of [w, a]) for (let i = 0; i < 3; i++) log.push({ t: t0 + i * 2 * D, c: x.id, b: 4, ok: true, d: 'x' });
+  const now = t0 + 7 * D;
+  let { states, spell } = splitStates(replay(log));
+  assert.ok(states.get(w.id).masteredDay);
+  assert.deepEqual(spellCandidates(ix, states, spell, 'word', { now }), ['s:' + w.id]);
+  assert.equal(spellCandidates(ix, states, spell, 'wordabbr', { now }).length, 2);
+  assert.equal(spellCandidates(ix, states, spell, 'off', { now }).length, 0);
+  log.push({ t: now, c: 's:' + w.id, b: 1, d: 'x' });
+  ({ states, spell } = splitStates(replay(log)));
+  assert.ok(spell.has('s:' + w.id) && !states.has('s:' + w.id));
+  assert.equal(spellCandidates(ix, states, spell, 'word', { now }).length, 0);
+  assert.equal(spellCandidates(ix, states, spell, 'wordabbr', { now, perDay: 1 }).length, 0);
+  assert.ok(isSpell('s:' + w.id) && spellBase('s:' + w.id) === w.id);
+});
