@@ -3,8 +3,8 @@ import { UNITS, PAIRS, CONFUSIONS } from '../data/index.js';
 import { buildIndex } from './data.js';
 import {
   RULES, replay, planToday, newOrder, newSession, current, answer, isDone,
-  progress, streak, daySummary, dayKey, setSummary, LIST_ORDERS, MARKS, answerMarks, marksList, PACES, paceInfo, scopeSet, scopeLabel, normScope, scopeUnits, makeScope, overview,
-  minutesForCards, daysBetween,
+  progress, streak, daySummary, dayKey, setSummary, isSyl, sylUnits, makeSyl, LIST_ORDERS, MARKS, answerMarks, marksList, PACES, paceInfo, scopeSet, scopeLabel, normScope, scopeUnits, makeScope, overview,
+  minutesForCards, daysBetween, scopeStars,
 } from './engine.js';
 import { guideHTML } from './guide.js';
 import { THEMES, LOOKS, themeOf, applyLook } from './themes.js';
@@ -114,7 +114,9 @@ function listBar() {
     <button class="chip add" data-act="lnew">+ 새 목록</button></div>
     ${c ? `<div class="listbar-tools">순서: ${orderName(c)} · <button class="link" data-act="lren">이름 바꾸기</button> · <button class="link" data-act="ldel">목록 지우기</button></div>` : ''}</div>`;
 }
-const AP = () => A.settings.track === 'my' && myIds().length
+const AP = () => A.settings.track === 'syl' && A.settings.syl && sylUnits(A.settings.syl.scope).length
+  ? { track: 'syl', scope: A.settings.syl.scope, pace: A.settings.syl.pace }
+  : A.settings.track === 'my' && myIds().length
   ? { track: 'my', scope: 'my', pace: curL().pace || DEFAULT_MY_PACE }
   : { track: 'rec', scope: A.settings.scope, pace: A.settings.pace };
 // 오늘 새 단어 양 조절(미리 더 하기 / 오늘은 적게). 그날만 쓴다.
@@ -127,7 +129,7 @@ const saveSettings = () => store.set('settings', A.settings);
 
 // ───────── 그리기 ─────────
 function render() {
-  const V = { study: viewStudy, end: viewEnd, guide: () => guideHTML(false), pace: viewPace, welcome: viewWelcome, look: viewLook, ready: viewReady, stats: viewStats, qset: viewQuizSet, qrun: viewQuizRun, qres: viewQuizResult, card: viewCard, pickw: viewPick, marks: viewMarks, settings: viewSettingsPage };
+  const V = { study: viewStudy, end: viewEnd, guide: () => guideHTML(false), pace: viewPace, welcome: viewWelcome, look: viewLook, ready: viewReady, stats: viewStats, qset: viewQuizSet, qrun: viewQuizRun, qres: viewQuizResult, card: viewCard, pickw: viewPick, marks: viewMarks, settings: viewSettingsPage, way: viewWay, syl: viewSyl, history: viewStats };
   const v = (V[A.view] || viewHome)();
   const nav = NAV_VIEWS.has(A.view) || !V[A.view];
   $app.innerHTML = v + (nav ? bottomNav() : '');
@@ -152,6 +154,7 @@ const IC = {
   n_home: svg('<path d="M3 11l9-7 9 7"></path><path d="M5 10v10h14V10"></path>'),
   n_qset: svg('<path d="M9 11l2 2 4-4"></path><rect x="4" y="3" width="16" height="18" rx="3"></rect>'),
   n_marks: svg('<path d="M6 3h12v18l-6-4-6 4z"></path>'),
+  n_history: svg('<rect x="3" y="4" width="18" height="17" rx="3"></rect><path d="M3 9h18"></path><path d="M8 13h2"></path><path d="M14 13h2"></path><path d="M8 17h2"></path>'),
   n_stats: svg('<path d="M4 20V10"></path><path d="M10 20V4"></path><path d="M16 20v-7"></path><path d="M21 20H3"></path>'),
   back: svg('<path d="M15 18l-6-6 6-6"></path>'),
   bulb: svg('<path d="M9 18h6"></path><path d="M10 22h4"></path><path d="M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.2 1 2V17h6v-.3c0-.8.4-1.5 1-2A7 7 0 0 0 12 2z"></path>'),
@@ -184,13 +187,53 @@ function viewWelcome() {
     </div>
     <p class="cite">근거: Dunlosky 외(2013) 공부법 비교 · 연속 재학습 연구 · FSRS 복습 계산 — 자세히는 시작 뒤 "사용법"에서</p>
     <div class="bottom-cta">
-      <button class="btn primary big" data-act="tolook">시작하기</button>
+      <button class="btn primary big" data-act="toway">시작하기</button>
       <label class="btn ghost">다른 기기에서 쓰던 기록이 있어요<input type="file" accept=".json,application/json" data-act="file" hidden></label>
     </div>
   </section>`;
 }
 
-// ───────── 첫 시작 2 / 설정: 색과 모양 고르기 ─────────
+// ───────── 첫 시작 2: 어떻게 공부할까요? ─────────
+function viewWay() {
+  const opt = (m, icon, t, d, extra = '') => `<button class="way" data-act="waypick" data-arg="${m}"><span class="way-ic">${icon}</span><span><b>${t}</b><small>${d}</small>${extra}</span><span class="way-go">›</span></button>`;
+  return `${A.first ? stepTop(1, 'towelcome') : '<header class="top"><h1>공부 방법 바꾸기</h1><button class="btn small" data-act="home">닫기</button></header>'}
+  <h1 class="hero-title" style="font-size:26px">어떻게 공부할까요?</h1>
+  <p class="lead-p" style="margin:6px 0 16px">언제든 바꿀 수 있어요. 고르면 필요한 것만 물어봐요.</p>
+  <div class="ways">
+    ${opt('rec', '✨', '추천대로', '앱이 정한 순서로 바로 시작해요. 처음이면 이걸로!', '<em class="badge">가장 쉬움</em>')}
+    ${opt('syl', '📘', '강의·교재 순서로', '강의계획서나 교재 목차를 보면서 단원 순서를 눌러요.')}
+    ${opt('my', '✏️', '내가 단어 고르기', '단원·중요도·내 공부 기록으로 좁혀 가며 골라요.')}
+  </div>`;
+}
+
+// ───────── 강의·교재 순서: 단원을 순서대로 누르기 ─────────
+function viewSyl() {
+  const d = A.draft;
+  const sc = d.syl.scope;
+  const order = sylUnits(sc);
+  const stars = [...scopeStars(sc)];
+  const unitCount = id => IX.items.filter(x => x.unit === id && stars.includes(x.star)).length;
+  const total = order.length ? scopeSet(IX, sc).size : 0;
+  const starCnt = n => IX.items.filter(x => x.star === n && (!order.length || order.includes(x.unit))).length;
+  const chosen = order.map((id, i) => { const u = IX.units.find(z => z.id === id); return `<li><span class="num">${i + 1}</span><span class="nm">${esc(u.short)} <small>${unitCount(id)}개</small></span>
+      <button class="icon-btn" data-act="sylmove" data-arg="${i}:-1" aria-label="위로"${i ? '' : ' disabled'}>↑</button><button class="icon-btn" data-act="sylmove" data-arg="${i}:1" aria-label="아래로"${i < order.length - 1 ? '' : ' disabled'}>↓</button><button class="icon-btn" data-act="syltap" data-arg="${id}" aria-label="빼기">✕</button></li>`; }).join('');
+  const rest = IX.units.filter(u => !order.includes(u.id)).map(u => `<button class="chip" data-act="syltap" data-arg="${u.id}">+ ${esc(u.short)} <small>${unitCount(u.id)}</small></button>`).join('');
+  return `${A.first ? stepTop(1, 'toway') : '<header class="top"><h1>강의·교재 순서</h1><button class="btn small" data-act="sylback">뒤로</button></header>'}
+  <h1 class="hero-title" style="font-size:24px">수업 순서대로 단원을 눌러요</h1>
+  <p class="lead-p" style="margin:6px 0 14px">강의계획서나 교재 목차를 보면서 첫 수업 단원부터 차례로 누르세요. 안 배우는 단원은 누르지 않으면 빠져요.</p>
+  <section class="panel"><div class="row-between"><h2>공부 순서</h2><span class="sub">${order.length}개 단원</span></div>
+    ${order.length ? `<ol class="syl-list">${chosen}</ol>` : '<p class="note">아래에서 첫 단원을 눌러 주세요.</p>'}
+    ${rest ? `<p class="note" style="margin:12px 0 6px">${order.length ? '다음 단원을 누르세요' : '단원'}</p><div class="chips">${rest}</div>` : ''}
+    <div class="row-between" style="margin-top:12px"><button class="link" data-act="sylall">추천 순서대로 모두 넣기</button>${order.length ? '<button class="link" data-act="sylclear">모두 빼기</button>' : ''}</div>
+  </section>
+  <section class="panel"><h2>중요도 <span class="sub">(여러 개)</span></h2>
+    <div class="chips">${[3, 2, 1].map(n => `<button class="chip${stars.includes(n) ? ' on' : ''}" data-act="sylstar" data-arg="${n}">${'★'.repeat(n)} <small>${starCnt(n)}</small></button>`).join('')}</div>
+  </section>
+  <div class="bottom-cta pace-cta"><div class="pace-res one"><b style="color:var(--deep)">${total}개</b> 단어 · ${order.length}개 단원</div>
+    <button class="btn primary big" data-act="sylnext"${order.length ? '' : ' disabled'}>${A.first ? '다음: 언제까지?' : '이 순서로 정하기'}</button></div>`;
+}
+
+// ───────── 첫 시작 / 설정: 색과 모양 고르기 ─────────
 function viewLook() {
   const d = A.draftLook;
   const t = themeOf(d.theme);
@@ -228,14 +271,16 @@ function viewReady() {
   <h1 class="hero-title" style="font-size:26px;margin-bottom:14px">준비됐어요</h1>
   <section class="readycard">
     <div class="big">매일 약 ${info.minutes}분</div>
-    <p>${fmtDate(end, { year: 'numeric', month: 'long', day: 'numeric' })}까지 ${scopeLabel(S.scope)} ${info.total}개를 모두 넣어요</p>
+    <p>${fmtDate(end, { year: 'numeric', month: 'long', day: 'numeric' })}까지 ${S.track === 'my' ? esc(myName()) : scopeLabel(S.scope)} ${info.total}개를 모두 넣어요</p>
     <div class="rows">
       <div><span>오늘</span><span>새 단어 ${p.fresh.length}개 · 약 ${p.minutes}분</span></div>
-      <div><span>순서</span><span>조각(접두사·접미사)부터, 장별로</span></div>
+      <div><span>순서</span><span>${S.track === 'syl' ? sylUnits(S.scope).slice(0, 3).map(id => esc(IX.units.find(u => u.id === id).short)).join(' → ') + (sylUnits(S.scope).length > 3 ? ' → …' : '') : S.track === 'my' ? `${esc(myName())} · ${orderName(curL())}` : '조각(접두사·접미사)부터, 장별로'}</span></div>
       <div><span>복습</span><span>잊기 직전에 앱이 알아서</span></div>
     </div>
   </section>
-  <p class="note center" style="margin:-2px 0 12px">RN 영어 설명, 발음 속도, 목표 기억률은 나중에 설정(⚙)에서 바꿀 수 있어요.</p>
+  <section class="panel ready-color"><div class="row-between"><b>색</b><span class="sub">마음에 드는 색을 눌러 보세요</span></div>
+    <div class="sws">${THEMES.map(x => `<button class="sw${x.id === S.theme ? ' on' : ''}" aria-label="${x.name}" data-act="theme" data-arg="${x.id}"><span class="ring"><span class="dot" style="background:${x.pri}"></span></span>${x.name}</button>`).join('')}</div></section>
+  <p class="note center" style="margin:-2px 0 12px">모양, RN 영어 설명, 발음 속도, 목표 기억률은 나중에 설정(⚙)에서 바꿀 수 있어요.</p>
   ${tip}
   <div class="bottom-cta"><button class="btn primary big" data-act="finish">첫 공부 시작</button></div>`;
 }
@@ -267,13 +312,16 @@ function hsearchHTML() {
 }
 
 // 화면 맨 아래 고정 메뉴 (홈 · 시험 · 단어 모음 · 현황)
-const NAV = [['home', '홈', 'home'], ['qset', '시험', 'quiz'], ['marks', '단어 모음', 'marks'], ['stats', '현황', 'stats']];
-const NAV_VIEWS = new Set(['home', 'qset', 'marks', 'stats', 'settings']);
+const NAV = [['home', '홈', 'home'], ['qset', '시험', 'quiz'], ['marks', '단어', 'marks'], ['history', '기록', 'history']];
+const NAV_VIEWS = new Set(['home', 'qset', 'marks', 'stats', 'settings', 'history']);
 function bottomNav() {
-  return `<nav class="bnav" aria-label="메뉴">${NAV.map(([v, l, act]) => `<button class="${A.view === v ? 'on' : ''}" data-act="${act}"${A.view === v ? ' aria-current="page"' : ''}>${IC['n_' + v]}<span>${l}</span></button>`).join('')}</nav>`;
+  const cur = A.view === 'stats' ? 'history' : A.view;
+  return `<nav class="bnav" aria-label="메뉴">${NAV.map(([v, l, act]) => `<button class="${cur === v ? 'on' : ''}" data-act="${act}"${cur === v ? ' aria-current="page"' : ''}>${IC['n_' + v]}<span>${l}</span></button>`).join('')}</nav>`;
 }
 function viewSettingsPage() {
   return `<header class="top"><h1>설정</h1><button class="btn small" data-act="home">닫기</button></header>${viewSettings()}${viewBackup()}
+  <section class="panel"><h2>처음부터 다시 정하기</h2><p class="note">처음 시작 화면으로 돌아가서 공부 방법과 기간을 다시 골라요. 공부 기록·내 단어 목록·아주 중요 표시는 그대로 남아요.</p>
+    <button class="btn" style="width:100%;margin-top:10px" data-act="restart">처음 화면으로 돌아가기</button></section>
   <p class="foot">단어 ${IX.items.length}개 · 공부 기록 ${A.log.length}줄 · 이 기기: ${esc(A.settings.label)}</p>`;
 }
 
@@ -374,9 +422,11 @@ function viewHome() {
 function viewPace() {
   const d = A.draft;
   const isMy = d.scope === 'my';
+  const isSy = isSyl(d.scope);
+  const mode = isMy ? 'my' : isSy ? 'syl' : 'rec';
   const today = dayKey(Date.now());
-  const stars = new Set(isMy ? [] : [...normScope(d.scope).split('|')[0]].map(Number));
-  const units = isMy ? null : scopeUnits(d.scope);
+  const stars = new Set(isMy ? [] : [...scopeStars(d.scope)]);
+  const units = isMy || isSy ? null : scopeUnits(d.scope);
   const STAR = [[3, '자주 나옴', '국시·시험에 자주, 매일 쓰는 말'], [2, '중요', '수업에서 꼭 배우는 말'], [1, '확장', '알아 두면 좋은 말']];
   const starOpts = STAR.map(([n, name, desc]) => {
     const cnt = IX.items.filter(x => x.star === n && (!units || units.has(x.unit))).length;
@@ -431,27 +481,37 @@ function viewPace() {
   const resLine = cur && !cur.ended
     ? `<div class="pace-res"><div><b>${cur.perDay}개</b><span>하루 새 단어</span></div><div><b>약 ${cur.minutes}분</b><span>하루 공부</span></div><div><b>${fmtDate(d.pace.end)}</b><span>끝나는 날</span></div></div>`
     : d.pace.mode === 'daily' ? `<div class="pace-res one">하루 ${d.pace.cards}장 · 약 ${minutesForCards(d.pace.cards)}분</div>` : '<div class="pace-res one">기간을 골라 주세요</div>';
-  return `${A.first ? stepTop(2, 'tolook') : '<header class="top"><h1>공부 계획</h1><button class="btn small" data-act="home">닫기</button></header>'}
-  ${A.first ? '<h1 class="hero-title" style="font-size:26px;margin-bottom:14px">공부 계획을 세워요</h1>' : ''}
+  return `${A.first ? stepTop(2, 'toway') : '<header class="top"><h1>공부 계획</h1><button class="btn small" data-act="home">닫기</button></header>'}
+  ${A.first ? '<h1 class="hero-title" style="font-size:26px;margin-bottom:14px">언제까지 끝낼까요?</h1>' : ''}
   ${isMy && curL() ? `<section class="panel order-line"><div class="row-between"><b>공부 순서: ${orderName(curL())}</b><button class="link" data-act="pick" data-arg="pace">바꾸기</button></div>
     <p class="note" style="margin-top:4px">"${esc(myName())}" 목록의 순서예요. 단어 고르는 화면 아래에서 바꿔요.</p></section>`
   : A.first ? '' : `<details class="panel order-line"><summary><b>공부 순서: 추천 순서</b></summary>
     <p class="sub" style="margin-top:6px">조각 → 인체 → 계통별(근골격 → 심혈관 → … → 피부) → 약어</p>
     <p class="note" style="margin-top:4px">의학용어 수업에서 가장 흔한 순서예요. 교재 순서로 하려면 "내 단어" 목록을 만들 때 순서를 고르세요.</p></details>`}
-  <section class="panel"><div class="row-between"><h2>① 무엇을 외울까요?</h2><span class="sub">${sel.total}개${sel.remaining < sel.total ? ` · 남은 ${sel.remaining}` : ''}</span></div>
-    <div class="seg" style="margin:8px 0 10px">
-      <button class="${isMy ? '' : 'on'}" data-act="dscopemode" data-arg="rec"><b>추천 범위</b><small>중요도·단원으로</small></button>
-      <button class="${isMy ? 'on' : ''}" data-act="dscopemode" data-arg="my"><b>내 단어</b><small>직접 고른 목록 · ${(A.settings.lists || []).length}개</small></button>
+  ${A.first ? `<section class="panel chosen-way"><div class="row-between"><span><span class="sub">공부 방법</span><br><b>${mode === 'rec' ? '✨ 추천대로' : mode === 'syl' ? '📘 강의·교재 순서' : '✏️ 내가 고른 단어'}</b> · ${sel.total}개</span><button class="link" data-act="toway">바꾸기</button></div>
+    ${mode === 'rec' ? `<details class="scope-more" data-scopemore${A.draft.scopeOpen ? ' open' : ''}><summary>중요도·단원 고르기 (지금: ${esc(scopeLabel(d.scope))})</summary><div class="opts" style="margin-top:8px">${starOpts}</div>
+      <details class="units"${units ? ' open' : ''}><summary>단원 고르기${units ? ` (${units.size}개)` : ' (전체)'}</summary><div class="chips" style="margin-top:10px">${unitChips}</div></details></details>`
+    : mode === 'syl' ? `<p class="note" style="margin-top:6px">${sylUnits(d.scope).map(id => esc(IX.units.find(u => u.id === id).short)).slice(0, 6).join(' → ')}${sylUnits(d.scope).length > 6 ? ' → …' : ''} <button class="link" data-act="tosyl">순서 고치기</button></p>`
+    : `<p class="note" style="margin-top:6px">"${esc(myName())}" ${myIds().length}개 <button class="link" data-act="pick" data-arg="pace">단어 고치기</button></p>`}
+  </section>`
+  : `<section class="panel"><div class="row-between"><h2>① 무엇을 외울까요?</h2><span class="sub">${sel.total}개${sel.remaining < sel.total ? ` · 남은 ${sel.remaining}` : ''}</span></div>
+    <div class="seg seg3" style="margin:8px 0 10px">
+      <button class="${mode === 'rec' ? 'on' : ''}" data-act="dscopemode" data-arg="rec"><b>추천</b><small>중요도·단원</small></button>
+      <button class="${mode === 'syl' ? 'on' : ''}" data-act="dscopemode" data-arg="syl"><b>강의 순서</b><small>목차대로</small></button>
+      <button class="${mode === 'my' ? 'on' : ''}" data-act="dscopemode" data-arg="my"><b>내 단어</b><small>목록 ${(A.settings.lists || []).length}개</small></button>
     </div>
-    ${isMy ? `<p class="note">고른 목록의 단어만 공부해요. 목록마다 기간을 따로 정해요. 단어에 필요한 조각은 함께 들어가요.</p>
+    ${mode === 'my' ? `<p class="note">고른 목록의 단어만 공부해요. 목록마다 기간을 따로 정해요. 단어에 필요한 조각은 함께 들어가요.</p>
       ${listBar()}
       <button class="btn" style="width:100%;margin-top:8px" data-act="pick" data-arg="pace">${myIds().length ? `"${esc(myName())}" 단어 고치기` : '단어 고르기'}</button>`
-    : `<details class="scope-more"${A.first && !A.draft.scopeOpen ? '' : ' open'} data-scopemore><summary>${esc(scopeLabel(d.scope))} ${sel.total}개 · 중요도·단원 바꾸기</summary>
+    : mode === 'syl' ? `<p class="note">강의계획서·교재 목차 순서대로 단원을 공부해요.</p>
+      <ol class="syl-mini">${sylUnits(d.scope).map(id => `<li>${esc(IX.units.find(u => u.id === id).short)}</li>`).join('')}</ol>
+      <button class="btn" style="width:100%;margin-top:8px" data-act="tosyl">단원 순서·중요도 고치기</button>`
+    : `<details class="scope-more" open data-scopemore><summary>${esc(scopeLabel(d.scope))} ${sel.total}개 · 중요도·단원 바꾸기</summary>
     <p class="note" style="margin-top:8px">중요도를 고르고, 필요하면 단원을 골라요. 여러 개 고를 수 있어요.</p>
     <div class="opts">${starOpts}</div>
     <details class="units"${units ? ' open' : ''}><summary>단원 고르기${units ? ` (${units.size}개)` : ' (전체)'}</summary><div class="chips" style="margin-top:10px">${unitChips}</div></details></details>`}
-  </section>
-  <section class="panel"><h2>② 며칠 안에 끝낼까요?</h2>
+  </section>`}
+  <section class="panel"><h2>${A.first ? '기간' : '② 며칠 안에 끝낼까요?'}</h2>
     <p class="note">고른 ${sel.remaining}개를 언제까지 다 외울지 정하면 하루 양을 계산해요.</p>
     <div class="opts">${durOpts}${customBox}</div>
   </section>
@@ -590,7 +650,7 @@ function viewSettings() {
       ${THEMES.map(x => `<button class="sw${x.id === s.theme ? ' on' : ''}" aria-label="${x.name}" data-act="theme" data-arg="${x.id}"><span class="ring"><span class="dot" style="background:${x.pri}"></span></span>${x.name}</button>`).join('')}
     </div></div>
     <div class="set"><span>모양</span><div>${LOOKS.map(l => chip('look', l.id, s.look === l.id, l.name)).join('')}</div></div>
-    <div class="set"><span>공부 계획</span><div><button class="chip" data-act="pace">범위·속도 바꾸기</button></div></div>
+    <div class="set"><span>공부 계획</span><div><button class="chip" data-act="toway">공부 방법 바꾸기</button><button class="chip" data-act="pace">범위·기간 바꾸기</button></div></div>
     <div class="set"><span>목표 기억률</span><div>
       ${chip('ret', 0.85, s.retention === 0.85, '85% 여유')}${chip('ret', 0.9, s.retention === 0.9, '90% 기본')}${chip('ret', 0.95, s.retention === 0.95, '95% 시험 주간')}
     </div><p class="note">높일수록 더 자주 복습해요.</p></div>
@@ -876,6 +936,34 @@ const ACT = {
   guide: () => { A.view = 'guide'; render(); window.scrollTo(0, 0); },
   // 첫 시작 흐름
   towelcome: () => go('welcome'),
+  toway: () => go('way'),
+  // 어떻게 공부할까요 → 고른 방법에 필요한 화면으로
+  waypick: m => {
+    ACT.pace(true);
+    const d = A.draft;
+    d.mode = m;
+    if (m === 'rec') { d.scope = d.rec.scope; d.pace = { ...d.rec.pace }; go('pace'); }
+    else if (m === 'syl') { if (!sylUnits(d.syl.scope).length) d.syl.scope = makeSyl([3, 2, 1], IX.units.map(u => u.id)); d.scope = d.syl.scope; d.pace = { ...d.syl.pace }; d.sylFrom = 'way'; go('syl'); }
+    else { d.scope = 'my'; d.pace = { ...d.my.pace }; if (!curL()) newList(); ACT.pick('pace'); }
+  },
+  syltap: id => {
+    const d = A.draft; const o = sylUnits(d.syl.scope);
+    const next = o.includes(id) ? o.filter(z => z !== id) : [...o, id];
+    d.syl.scope = makeSyl(scopeStars(d.syl.scope), next); render();
+  },
+  sylmove: arg => {
+    const [i, dir] = arg.split(':').map(Number); const d = A.draft; const o = sylUnits(d.syl.scope); const j = i + dir;
+    if (j < 0 || j >= o.length) return; [o[i], o[j]] = [o[j], o[i]]; d.syl.scope = makeSyl(scopeStars(d.syl.scope), o); render();
+  },
+  sylstar: n => {
+    const d = A.draft; const st = new Set(scopeStars(d.syl.scope)); n = Number(n);
+    if (st.has(n)) { if (st.size === 1) { toast('하나는 골라야 해요'); return; } st.delete(n); } else st.add(n);
+    d.syl.scope = makeSyl(st, sylUnits(d.syl.scope)); render();
+  },
+  sylall: () => { const d = A.draft; d.syl.scope = makeSyl(scopeStars(d.syl.scope), IX.units.map(u => u.id)); render(); },
+  sylclear: () => { const d = A.draft; d.syl.scope = makeSyl(scopeStars(d.syl.scope), []); render(); },
+  sylnext: () => { const d = A.draft; if (!isSyl(d.scope)) d.pace = { ...d.syl.pace }; d.mode = 'syl'; d.scope = d.syl.scope; go('pace'); },
+  sylback: () => go('pace'),
   tolook: () => { A.draftLook = { theme: A.settings.theme, look: A.settings.look }; go('look'); },
   topace: () => ACT.pace(),
   dtheme: id => { A.draftLook.theme = id; applyLook(id, A.draftLook.look); render(); },
@@ -895,10 +983,13 @@ const ACT = {
   },
   theme: async id => { A.settings.theme = id; applyLook(id, A.settings.look); await saveSettings(); render(); },
   look: async id => { A.settings.look = id; applyLook(A.settings.theme, id); await saveSettings(); render(); },
-  pace: () => {
+  pace: keep => {
     const ap = AP();
-    A.draft = { scope: ap.scope, pace: { ...ap.pace },
-      rec: { scope: A.settings.scope, pace: { ...A.settings.pace } }, my: { pace: { ...((curL() && curL().pace) || DEFAULT_MY_PACE) } } };
+    const sylDefault = { scope: makeSyl([3, 2, 1], []), pace: { mode: 'goal', end: addDays(dayKey(Date.now()), 16 * 7) } };
+    A.draft = { mode: ap.track, scope: ap.scope, pace: { ...ap.pace },
+      rec: { scope: A.settings.scope, pace: { ...A.settings.pace } }, my: { pace: { ...((curL() && curL().pace) || DEFAULT_MY_PACE) } },
+      syl: { ...(A.settings.syl || sylDefault), pace: { ...((A.settings.syl || sylDefault).pace) } } };
+    if (keep === true) { if (A.first && A.draft.pace.mode !== 'goal') A.draft.pace = { mode: 'goal', end: addDays(dayKey(Date.now()), 16 * 7) }; return; }
     if (A.first && A.draft.pace.mode !== 'goal') A.draft.pace = { mode: 'goal', end: addDays(dayKey(Date.now()), 16 * 7) };
     go('pace');
   },
@@ -948,15 +1039,18 @@ const ACT = {
     render();
   },
   // ① 추천 범위 ↔ 내 단어: 계획이 두 개라서 기간도 따로 기억한다
+  // ① 추천 · 강의 순서 · 내 단어: 계획이 셋이라 기간도 따로 기억한다
   dscopemode: m => {
     const d = A.draft;
-    const isMy = d.scope === 'my';
-    if ((m === 'my') === isMy) return;
-    if (isMy) d.my = { pace: d.pace }; else d.rec = { scope: d.scope, pace: d.pace };
+    const cur = d.scope === 'my' ? 'my' : isSyl(d.scope) ? 'syl' : 'rec';
+    if (m === cur) return;
+    if (cur === 'my') d.my = { pace: d.pace }; else if (cur === 'syl') d.syl = { scope: d.scope, pace: d.pace }; else d.rec = { scope: d.scope, pace: d.pace };
     if (m === 'my') { d.scope = 'my'; d.pace = { ...d.my.pace }; if (!myIds().length) { if (!curL()) newList(); ACT.pick('pace'); return; } }
+    else if (m === 'syl') { d.scope = d.syl.scope; d.pace = { ...d.syl.pace }; if (!sylUnits(d.scope).length) { ACT.tosyl(); return; } }
     else { d.scope = d.rec.scope; d.pace = { ...d.rec.pace }; }
     render();
   },
+  tosyl: () => { const d = A.draft; if (isSyl(d.scope)) d.syl.scope = d.scope; go('syl'); },
   dstaronly: () => { const units = scopeUnits(A.draft.scope); A.draft.scope = makeScope([3], units ? [...units] : null); render(); },
   dunit: id => {
     const stars = [...normScope(A.draft.scope).split('|')[0]].map(Number);
@@ -983,6 +1077,7 @@ const ACT = {
     }
     for (const [id, pc] of Object.entries(d.myPaces || {})) { const l = (A.settings.lists || []).find(z => z.id === id); if (l && pc.mode === 'goal') { pc.start = pc.start || dayKey(Date.now()); } if (l) l.pace = pc; }
     if (d.scope === 'my') { if (curL()) curL().pace = d.pace; A.settings.track = 'my'; }
+    else if (isSyl(d.scope)) { A.settings.syl = { scope: d.scope, pace: d.pace }; A.settings.track = 'syl'; }
     else { A.settings.scope = d.scope; A.settings.pace = d.pace; A.settings.track = 'rec'; }
     await saveSettings();
     A.draft = null;
@@ -991,6 +1086,11 @@ const ACT = {
     toast('공부 계획을 정했어요');
   },
   sheet: () => go('settings'),
+  restart: () => {
+    if (!confirm('처음 화면으로 갈까요? 공부 기록은 그대로 남아요.')) return;
+    A.first = true; A.draft = null; go('welcome');
+  },
+  history: () => go('history'),
   settings: () => go('settings'),
   statset: id => { A.statSet = id; render(); },
   statstudy: id => {
@@ -1476,7 +1576,7 @@ Object.assign(ACT, {
     A.pk.pasteMsg = `${found}개를 찾아서 골랐어요.${miss.length ? ` 앱에 없는 단어 ${miss.length}개: ${esc(miss.slice(0, 10).join(', '))}${miss.length > 10 ? ' …' : ''}` : ''}`;
     render();
   },
-  pkcancel: () => go(A.pk.back || 'home'),
+  pkcancel: () => { if (A.first && A.pk.back === 'pace' && !myIds().length) { go('way'); return; } go(A.pk.back || 'home'); },
   pkord: m => { A.pk.order = { ...A.pk.order, mode: m }; if (m === 'units' && !A.pk.order.units) A.pk.order.units = IX.units.map(u => u.id); render(); },
   pkup: i => { const u = A.pk.order.units; i = Number(i); if (i > 0) [u[i - 1], u[i]] = [u[i], u[i - 1]]; render(); },
   pkdown: i => { const u = A.pk.order.units; i = Number(i); if (i < u.length - 1) [u[i + 1], u[i]] = [u[i], u[i + 1]]; render(); },
@@ -1656,7 +1756,7 @@ async function importText(text) {
   const fm = mergeFlags(A.flags, o.flags);
   if (fm.changed) { A.flags = fm.flags; await store.set('flags', A.flags); }
   recompute();
-  if (A.view === 'welcome') ACT.tolook(); else render();
+  if (A.view === 'welcome') go('way'); else render();
   const from = o.label ? `(${o.label}에서 보냄) ` : '';
   toast(added.length || nm.changed
     ? `${from}기록 ${added.length}줄을 합쳤어요${nm.changed ? ` · 내 암기법 ${nm.changed}개` : ''}`

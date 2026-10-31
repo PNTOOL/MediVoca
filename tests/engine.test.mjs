@@ -371,3 +371,21 @@ test('묶음 현황: 상태·마지막 답·오늘', () => {
   assert.equal(r.status.new, 1);
   assert.equal(r.today, 4);
 });
+
+import { makeSyl, isSyl, sylUnits } from '../src/engine.js';
+test('강의 순서: 단원 순서대로 새 단어, 범위·이름', () => {
+  const ix = buildIndex(UNITS, PAIRS, CONFUSIONS);
+  const sc = makeSyl([3, 2], ['m06', 'm05']);
+  assert.ok(isSyl(sc));
+  assert.equal(normScope(sc), sc);
+  assert.deepEqual(sylUnits(sc), ['m06', 'm05']);
+  assert.match(scopeLabel(sc), /강의 순서 · 2개 단원/);
+  const set = scopeSet(ix, sc);
+  for (const id of set) { const x = ix.byId.get(id); if (x.k !== 'part') assert.ok(['m06', 'm05'].includes(x.unit) && x.star >= 2); }
+  const order = newOrder(ix, sc);
+  const firstM5 = order.findIndex(id => ix.byId.get(id).unit === 'm05' && ix.byId.get(id).k !== 'part');
+  const lastM6 = order.map(id => ix.byId.get(id)).map((x, i) => (x.unit === 'm06' && x.k !== 'part' ? i : -1)).reduce((a, b) => Math.max(a, b), -1);
+  assert.ok(lastM6 < firstM5, '심혈관(m06)을 다 넣은 뒤 근골격(m05)');
+  const p = planToday(ix, new Map(), { now: Date.UTC(2026, 9, 31, 3), scope: sc, order });
+  assert.ok(p.fresh.length > 0);
+});

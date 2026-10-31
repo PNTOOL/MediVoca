@@ -103,6 +103,7 @@ export function retrievability(s, now, retention = 0.9) {
 // 단어에 들어가는 조각은 그 단어보다 먼저 온다(다른 장·확장 조각이라도).
 export function newOrder(index, scope = 'all') {
   if (scope === 'my' && index.myOrder && index.myOrder.mode && index.myOrder.mode !== 'rec') return listOrder(index, index.myList || [], index.myOrder);
+  if (isSyl(scope)) return listOrder(index, [...scopeSet(index, scope)], { mode: 'units', units: sylUnits(scope) });
   const keep = normScope(scope) === '321' ? null : scopeSet(index, scope);
   const out = [];
   const placed = new Set();
@@ -138,18 +139,24 @@ export function newOrder(index, scope = 'all') {
 // 예전 이름(star3 · core · all)도 받는다. 범위 안 단어에 필요한 조각은 별이 낮아도 함께 넣는다.
 const OLD_SCOPES = { star3: '3', core: '32', all: '321' };
 // 범위 문자열: '★ 숫자' 또는 '★ 숫자|단원.단원' (예: '32|m05.m06' = 근골격·심혈관의 ★★ 이상)
-const starPart = scope => String(OLD_SCOPES[scope] || scope || '321').split('|')[0];
+// 강의·교재 순서: 'syl:★숫자|단원.단원' — 단원 순서가 곧 공부 순서 (예 'syl:32|m01.m02.m06.m05')
+export const isSyl = scope => String(scope || '').startsWith('syl:');
+const bare = scope => (isSyl(scope) ? String(scope).slice(4) : scope);
+export function sylUnits(scope) { return (String(bare(scope) || '').split('|')[1] || '').split('.').filter(Boolean); }
+export function makeSyl(stars, units) { return 'syl:' + ([...stars].map(Number).sort((a, b) => b - a).join('') || '321') + '|' + units.join('.'); }
+const starPart = scope => String(OLD_SCOPES[bare(scope)] || bare(scope) || '321').split('|')[0];
 export function scopeStars(scope = 'all') {
   const set = new Set([...starPart(scope)].map(Number).filter(n => n >= 1 && n <= 3));
   return set.size ? set : new Set([1, 2, 3]);
 }
 export function scopeUnits(scope) {
-  const u = String(scope || '').split('|')[1];
+  const u = String(bare(scope) || '').split('|')[1];
   const list = (u || '').split('.').filter(Boolean);
   return list.length ? new Set(list) : null;
 }
 export function normScope(scope) {
   if (scope === 'my') return 'my';
+  if (isSyl(scope)) return makeSyl(scopeStars(scope), sylUnits(scope));
   const stars = [...scopeStars(scope)].sort((a, b) => b - a).join('');
   const units = scopeUnits(scope);
   return units ? stars + '|' + [...units].sort().join('.') : stars;
@@ -159,6 +166,7 @@ export function makeScope(stars, units) {
 }
 export function scopeLabel(scope) {
   if (scope === 'my') return '내 단어';
+  if (isSyl(scope)) { const d = starPart(scope); return `강의 순서 · ${sylUnits(scope).length}개 단원${d === '321' ? '' : ' · ' + (d === '32' ? '★★ 이상' : d === '3' ? '★★★만' : [...d].map(n => '★'.repeat(Number(n))).join('·'))}`; }
   const d = normScope(scope).split('|')[0];
   const units = scopeUnits(scope);
   const s = d === '321' ? '전체' : d === '32' ? '핵심 (★★ 이상)' : d === '3' ? '★★★만' : [...d].map(n => '★'.repeat(Number(n))).join(' · ');
