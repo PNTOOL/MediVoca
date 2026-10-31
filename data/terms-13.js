@@ -1,0 +1,38 @@
+// 13장 내분비계 (하랑노트 의학용어에서 옮김)
+// 형식은 data/README.md 참고. 고친 뒤 npm run check 로 검사한다.
+export default {
+  unit: {"id":"m13","n":13,"title":"내분비계","short":"내분비"},
+  items: [
+    {"id":"p:endocrin/o","k":"part","t":"endocrin/o","ko":["내분비"],"star":2,"stage":"core","tip":{"k":"어원","s":"endo(안) + crin(분비) = 몸 안(피)으로 분비"},"def":"endocrine"},
+    {"id":"p:thyr/o","k":"part","t":"thyr/o","ko":["갑상샘","갑상선"],"star":2,"stage":"core","def":"thyroid"},
+    {"id":"p:thyroid/o","k":"part","t":"thyroid/o","ko":["갑상샘","갑상선"],"star":2,"stage":"core","tip":{"k":"어원","s":"방패(thyreos) 모양 샘"},"def":"thyroid"},
+    {"id":"p:parathyroid/o","k":"part","t":"parathyroid/o","ko":["부갑상샘","부갑상선"],"star":1,"stage":"ext","def":"parathyroid"},
+    {"id":"p:adren/o","k":"part","t":"adren/o","ko":["부신"],"star":1,"stage":"ext","def":"adrenal gland"},
+    {"id":"p:adrenal/o","k":"part","t":"adrenal/o","ko":["부신"],"star":2,"stage":"core","tip":{"k":"아는 말","s":"**아드레날**린 = 부신에서 나옴"},"def":"adrenal gland"},
+    {"id":"p:pituitar/o","k":"part","t":"pituitar/o","ko":["뇌하수체"],"star":1,"stage":"ext","def":"pituitary gland"},
+    {"id":"p:gluc/o","k":"part","t":"gluc/o","ko":["당","포도당"],"star":2,"stage":"core","tip":{"k":"아는 말","s":"**글루코**스(glucose) = 포도당"},"def":"glucose, sugar"},
+    {"id":"p:glyc/o","k":"part","t":"glyc/o","ko":["당"],"star":3,"stage":"core","tip":{"k":"아는 말","s":"**글리코**겐 = 당을 저장한 것"},"def":"sugar"},
+    {"id":"p:ket/o","k":"part","t":"ket/o","ko":["케톤"],"star":1,"stage":"ext","def":"ketones"},
+    {"id":"p:acr/o","k":"part","t":"acr/o","ko":["끝","사지 끝"],"star":1,"stage":"ext","tip":{"k":"아는 말","s":"**아크로**바틱 = 높은 끝에서"},"def":"extremities, tip"},
+    {"id":"p:-dipsia","k":"part","t":"-dipsia","ko":["갈증"],"star":2,"stage":"core","tip":{"k":"소리","s":"**딥**(deep)하게 목마름"},"def":"thirst"},
+    {"id":"w:endocrinology","k":"word","t":"endocrinology","ko":["내분비학","내분비내과"],"parts":["endocrin/o","-logy"],"star":1,"stage":"ext","def":"the study and treatment of the endocrine glands"},
+    {"id":"w:hyperthyroidism","k":"word","t":"hyperthyroidism","ko":["갑상샘기능항진증","갑상선기능항진증"],"parts":["hyper-","thyroid/o","-ism"],"star":3,"stage":"core","def":"excessive thyroid hormone","lay":["overactive thyroid"],"rn":"체중 감소, 더위를 못 참음, 빈맥, 안구돌출."},
+    {"id":"w:hypothyroidism","k":"word","t":"hypothyroidism","ko":["갑상샘기능저하증","갑상선기능저하증"],"parts":["hypo-","thyroid/o","-ism"],"star":3,"stage":"core","def":"deficient thyroid hormone","lay":["underactive thyroid"],"rn":"체중 증가, 추위를 못 참음, 서맥, 변비."},
+    {"id":"w:thyroidectomy","k":"word","t":"thyroidectomy","ko":["갑상샘절제술","갑상선절제술"],"parts":["thyroid/o","-ectomy"],"star":2,"stage":"core","def":"surgical removal of the thyroid","rn":"수술 뒤 호흡곤란, 출혈, 저칼슘(Chvostek·Trousseau 징후)을 관찰해요."},
+    {"id":"w:goiter","k":"word","t":"goiter","ko":["갑상샘종","갑상선종"],"star":1,"stage":"ext","mean":"갑상샘이 커져 목이 부어 보임","def":"enlargement of the thyroid gland","lay":["swelling in the neck"]},
+    {"id":"w:Graves' disease","k":"word","t":"Graves' disease","ko":["그레이브스병"],"star":1,"stage":"ext","mean":"갑상샘기능항진증의 가장 흔한 원인","def":"autoimmune disease that causes hyperthyroidism"},
+    {"id":"w:diabetes mellitus","k":"word","t":"diabetes mellitus","ko":["당뇨병"],"star":3,"stage":"core","def":"disorder of high blood glucose from lack of insulin or insulin resistance","lay":["diabetes"]},
+    {"id":"w:hyperglycemia","k":"word","t":"hyperglycemia","ko":["고혈당증","고혈당"],"parts":["hyper-","glyc/o","-emia"],"star":3,"stage":"core","def":"high blood glucose","lay":["high blood sugar","“My sugar has been running high.”"]},
+    {"id":"w:hypoglycemia","k":"word","t":"hypoglycemia","ko":["저혈당증","저혈당"],"parts":["hypo-","glyc/o","-emia"],"star":3,"stage":"core","def":"low blood glucose","lay":["low blood sugar","“I feel shaky and sweaty.”"],"rn":"의식이 있으면 빨리 흡수되는 당 15 g을 주고 15분 뒤 다시 재요 (15-15 규칙)."},
+    {"id":"w:polydipsia","k":"word","t":"polydipsia","ko":["다음증","다갈증"],"parts":["poly-","-dipsia"],"star":2,"stage":"core","mean":"목이 말라 물을 많이 마심","def":"excessive thirst","lay":["very thirsty"]},
+    {"id":"w:polyphagia","k":"word","t":"polyphagia","ko":["다식증"],"parts":["poly-","-phagia"],"star":2,"stage":"core","mean":"많이 먹음","def":"excessive hunger or eating","lay":["always hungry"]},
+    {"id":"w:diabetic ketoacidosis","k":"word","t":"diabetic ketoacidosis","ko":["당뇨병케톤산증"],"parts":["ket/o"],"star":2,"stage":"core","def":"acute complication with high glucose, ketones, and acidosis","rn":"약어 DKA. 과일 냄새 호흡, Kussmaul 호흡이 나타나요."},
+    {"id":"w:acromegaly","k":"word","t":"acromegaly","ko":["말단비대증","끝비대증"],"parts":["acr/o","-megaly"],"star":1,"stage":"ext","mean":"손·발·턱 같은 몸의 끝이 커짐","def":"enlargement of the hands, feet, and face from excess growth hormone"},
+    {"id":"w:Cushing's syndrome","k":"word","t":"Cushing's syndrome","ko":["쿠싱증후군"],"star":2,"stage":"core","def":"condition caused by excess cortisol","rn":"moon face, buffalo hump, 고혈당이 나타나요."},
+    {"id":"w:Addison's disease","k":"word","t":"Addison's disease","ko":["애디슨병"],"star":1,"stage":"ext","def":"adrenal insufficiency with low cortisol and aldosterone","rn":"저혈압, 저나트륨, 고칼륨, 피부 색소 침착이 나타나요."},
+    {"id":"w:hyperparathyroidism","k":"word","t":"hyperparathyroidism","ko":["부갑상샘기능항진증","부갑상선기능항진증"],"parts":["hyper-","parathyroid/o","-ism"],"star":1,"stage":"ext","def":"excessive parathyroid hormone causing high calcium"},
+    {"id":"w:adrenalectomy","k":"word","t":"adrenalectomy","ko":["부신절제술"],"parts":["adrenal/o","-ectomy"],"star":1,"stage":"ext","def":"surgical removal of an adrenal gland"},
+    {"id":"w:glucose","k":"word","t":"glucose","ko":["포도당"],"parts":["gluc/o"],"star":2,"stage":"core","def":"simple sugar that is the body's main energy source","lay":["sugar"]},
+    {"id":"w:insulin","k":"word","t":"insulin","ko":["인슐린"],"star":2,"stage":"core","def":"hormone that lowers blood glucose","rn":"NCLEX에서는 정맥(IV)으로 줄 수 있는 인슐린은 regular insulin이라고 배워요."}
+  ],
+};

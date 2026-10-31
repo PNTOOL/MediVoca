@@ -1,0 +1,11 @@
+{
+  "name": "medivoca",
+  "private": true,
+  "type": "module",
+  "description": "간호학생용 의학용어 암기 웹앱 (메디보카, 가칭)",
+  "scripts": {
+    "test": "TZ=Asia/Seoul node --test tests/*.test.mjs",
+    "check": "node scripts/check-data.mjs",
+    "serve": "python3 -m http.server 8080"
+  }
+}
