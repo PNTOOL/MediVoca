@@ -109,6 +109,7 @@ function newList(name) {
   const L = A.settings.lists || (A.settings.lists = []);
   let n = L.length + 1; while (L.some(l => l.name === `내 단어 ${n}`)) n++;
   const l = { id: 'L' + Date.now().toString(36), name: name || `내 단어 ${n}`, ids: [], pace: fixPace({ ...DEFAULT_MY_PACE }) };
+  A.freshList = l.id; // 단어를 처음 담으면 기간을 권하고 기간 칸을 보여 준다 (pksave)
   L.push(l); A.settings.curList = l.id; syncMy();
   return l;
 }
@@ -121,7 +122,7 @@ const orderName = l => { const o = (l && l.order) || { mode: 'rec' }; return (LI
 function listBar() {
   const L = A.settings.lists || [];
   const c = curL();
-  return `<div class="listbar"><div class="chips">${L.map(l => `<button class="chip${c && l.id === c.id ? ' on' : ''}" data-act="lsel" data-arg="${l.id}">${esc(l.name)} · ${l.ids.length}</button>`).join('')}
+  return `<div class="listbar"><div class="chips">${L.map(l => `<button class="chip${c && l.id === c.id ? ' on' : ''}" data-act="lsel" data-arg="${l.id}">${esc(l.name)} · ${l.ids.length.toLocaleString()}</button>`).join('')}
     <button class="chip add" data-act="lnew">+ 새 단어장</button></div>
     ${c ? `<div class="listbar-tools">순서: ${orderName(c)} · <button class="link" data-act="lren">이름 바꾸기</button> · <button class="link" data-act="ldel">단어장 지우기</button></div>` : ''}</div>`;
 }
@@ -618,6 +619,10 @@ function viewPace() {
   const unitChips = `<button class="chip${units ? '' : ' on'}" data-act="dunitall">전체 단원</button>` +
     IX.units.map(u => `<button class="chip${units && units.has(u.id) ? ' on' : ''}" data-act="dunit" data-arg="${u.id}">${u.n}. ${esc(u.short)}</button>`).join('');
   const sel = paceInfo(IX, A.states, { scope: d.scope });
+  // 내 단어장: 고른 단어 수와, 함께 들어가는 조각 수를 나눠 보여 준다 (99개인데 121개로 보여 헷갈리지 않게)
+  const picked = isMy ? myIds().length : 0;
+  const extra = isMy ? Math.max(0, sel.total - picked) : 0;
+  const totalTxt = isMy && extra ? `${sel.total.toLocaleString()}개 <small>(고른 ${picked.toLocaleString()} + 필요한 조각 ${extra.toLocaleString()})</small>` : `${sel.total.toLocaleString()}개`;
 
   // 며칠 안에: 4·8·12·16주 → 하루 새 단어·시간·끝나는 날
   const goalAt = end => paceInfo(IX, A.states, { pace: { mode: 'goal', start: today, end }, scope: d.scope });
@@ -670,13 +675,13 @@ function viewPace() {
   : A.first ? '' : `<details class="panel order-line"><summary><b>공부 순서: 추천 순서</b></summary>
     <p class="sub" style="margin-top:6px">조각 → 인체 → 계통별(근골격 → 심혈관 → … → 피부) → 약어</p>
     <p class="note" style="margin-top:4px">의학용어 수업에서 가장 흔한 순서예요. 교재 순서로 하려면 "학교 수업 단어장"을 만드세요.</p></details>`}
-  ${A.first ? `<section class="panel chosen-way"><div class="row-between"><span><span class="sub">공부 방법</span><br><b>${mode === 'rec' ? '✨ 추천대로' : mode === 'syl' ? '🏫 학교 수업 순서' : '✏️ 내가 고른 단어'}</b> · ${sel.total}개</span><button class="link" data-act="toway">바꾸기</button></div>
+  ${A.first ? `<section class="panel chosen-way"><div class="row-between"><span><span class="sub">공부 방법</span><br><b>${mode === 'rec' ? '✨ 추천대로' : mode === 'syl' ? '🏫 학교 수업 순서' : '✏️ 내가 고른 단어'}</b> · ${totalTxt}</span><button class="link" data-act="toway">바꾸기</button></div>
     ${mode === 'rec' ? `<details class="scope-more" data-scopemore${A.draft.scopeOpen ? ' open' : ''}><summary>중요도·단원 고르기 (지금: ${esc(scopeLabel(d.scope))})</summary><div class="opts" style="margin-top:8px">${starOpts}</div>
       <details class="units"${units ? ' open' : ''}><summary>단원 고르기${units ? ` (${units.size}개)` : ' (전체)'}</summary><div class="chips" style="margin-top:10px">${unitChips}</div></details></details>`
     : mode === 'syl' ? `<p class="note" style="margin-top:6px">${sylUnits(d.scope).map(id => esc(IX.units.find(u => u.id === id).short)).slice(0, 6).join(' → ')}${sylUnits(d.scope).length > 6 ? ' → …' : ''} <button class="link" data-act="tosyl">순서 고치기</button></p>`
-    : `<p class="note" style="margin-top:6px">"${esc(myName())}" ${myIds().length}개 <button class="link" data-act="pick" data-arg="pace">단어 고치기</button></p>`}
+    : `<p class="note" style="margin-top:6px">"${esc(myName())}" ${myIds().length.toLocaleString()}개 <button class="link" data-act="pick" data-arg="pace">단어 고치기</button></p>`}
   </section>`
-  : `<section class="panel"><div class="row-between"><h2>① 무엇을 외울까요?</h2><span class="sub">${sel.total}개${sel.remaining < sel.total ? ` · 남은 ${sel.remaining}` : ''}</span></div>
+  : `<section class="panel"><div class="row-between"><h2>① 무엇을 외울까요?</h2><span class="sub">${totalTxt}${sel.remaining < sel.total ? ` · 남은 ${sel.remaining.toLocaleString()}` : ''}</span></div>
     <div class="seg seg3" style="margin:8px 0 10px">
       <button class="${mode === 'rec' ? 'on' : ''}" data-act="dscopemode" data-arg="rec"><b>추천</b><small>중요도·단원</small></button>
       <button class="${mode === 'syl' ? 'on' : ''}" data-act="dscopemode" data-arg="syl"><b>학교 수업</b><small>목차대로</small></button>
@@ -693,8 +698,9 @@ function viewPace() {
     <div class="opts">${starOpts}</div>
     <details class="units"${units ? ' open' : ''}><summary>단원 고르기${units ? ` (${units.size}개)` : ' (전체)'}</summary><div class="chips" style="margin-top:10px">${unitChips}</div></details></details>`}
   </section>`}
-  <section class="panel"><h2>${A.first ? '기간' : '② 며칠 안에 끝낼까요?'}</h2>
-    <p class="note">고른 ${sel.remaining}개를 언제까지 다 외울지 정하면 하루 양을 계산해요.</p>
+  <section class="panel${A.paceFocus ? ' focus-in' : ''}" id="pace-dur">${A.paceFocus ? `<p class="fresh-ok">✓ "${esc(myName())}"에 단어 ${picked.toLocaleString()}개를 담았어요${extra ? ` (필요한 조각 ${extra.toLocaleString()}개도 함께)` : ''}.<br>이제 며칠 안에 끝낼지 골라 주세요. 하루 공부가 너무 길지 않은 기간을 골라 두었어요.</p>` : ''}
+    <h2>${A.first ? '기간' : '② 며칠 안에 끝낼까요?'}</h2>
+    <p class="note">${isMy && extra ? `조각까지 ${sel.remaining.toLocaleString()}개` : `${sel.remaining.toLocaleString()}개`}를 언제까지 다 외울지 정하면 하루 양을 계산해요.</p>
     <div class="opts">${durOpts}${customBox}</div>
   </section>
   ${sum}
@@ -1595,6 +1601,7 @@ const ACT = {
 
 function go(view) {
   if (view === 'home' && A.view === 'look' && A.draftLook) applyLook(A.settings.theme, A.settings.look); // 저장 안 하고 닫으면 원래 색으로
+  if (view !== 'pace') A.paceFocus = false;
   A.view = view;
   render();
   window.scrollTo(0, 0);
@@ -2105,9 +2112,20 @@ Object.assign(ACT, {
     else setMyIds(pick);
     await saveSettings();
     if (A.pk.back === 'pace' && A.draft) A.draft.scope = myIds().length ? 'my' : A.draft.scope;
+    // 새 단어장에 처음 단어를 담았으면: 하루 18분 안쪽이 되는 가장 짧은 기간을 골라 두고, 기간 칸을 먼저 보여 준다
+    const fresh = A.freshList && curL() && A.freshList === curL().id && myIds().length;
+    if (fresh) {
+      A.freshList = null;
+      const today = dayKey(Date.now());
+      const w = [4, 8, 12, 16].find(n => paceInfo(IX, A.states, { pace: { mode: 'goal', start: today, end: addDays(today, n * 7) }, scope: 'my' }).minutes <= 18) || 16;
+      curL().pace = fixPace({ mode: 'goal', weeks: w });
+      if (A.draft && A.pk.back === 'pace') { A.draft.pace = { mode: 'goal', end: addDays(today, w * 7) }; A.draft.cw = 0; A.draft.exam = false; draftKeepMy(); A.paceFocus = !A.first; }
+      await saveSettings();
+    }
     if (A.qcfg && A.pk.back === 'qset') { const rs = qRanges(A.qcfg); A.qcfg.ranges = rs.includes('my') ? rs : [...rs, 'my']; delete A.qcfg.range; }
     go(A.pk.back || 'home');
-    toast(`"${myName()}"에 ${myIds().length}개를 저장했어요`);
+    if (A.paceFocus) { const el = document.getElementById('pace-dur'); if (el) el.scrollIntoView({ block: 'start' }); }
+    else toast(`"${myName()}"에 ${myIds().length.toLocaleString()}개를 저장했어요`);
   },
 });
 document.addEventListener('keydown', e => {

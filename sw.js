@@ -2,7 +2,7 @@
  * 앱 파일을 고치면 CACHE 숫자를 올린다. 그래야 폰에 새 파일이 들어간다.
  * 앱 파일은 "네트워크 먼저(3초)": 올린 수정본이 바로 반영되고, 인터넷이 없거나 느리면 저장해 둔 파일로 열린다.
  */
-const CACHE = 'medivoca-v32';
+const CACHE = 'medivoca-v33';
 const DATA = Array.from({ length: 16 }, (_, i) => './data/terms-' + String(i + 1).padStart(2, '0') + '.js');
 const SHELL = [
   './', './index.html', './app.css', './manifest.webmanifest',
